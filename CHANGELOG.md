@@ -1,6 +1,10 @@
 # Changelog
 ## 0.2.0
 
+- Prepare Apache-2.0 licensing, public PyPI metadata, uv_build configuration,
+  Pydantic 2 compatibility bounds, and typed-package metadata for release.
+- Keep artifact build, inspection, and install/import smoke verification deferred
+  to the R0.7/R0.9 release workflow gates; this version remains unreleased.
 - Add the optional `external_ingress` app manifest contract.
 - Preserve validation and compatible serialization for manifests that omit it.
 - Reject duplicate capability ids, unsafe methods, non-strict numeric limits,
