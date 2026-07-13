@@ -41,3 +41,22 @@ claim shape only; cryptographic verification and equality to the configured
 issuer remain runtime responsibilities alongside signing, minting, JWKS
 validation, replay handling, routing, lifecycle status, error taxonomy, and grant
 persistence.
+
+## 0.2.0 rollout notes
+
+`0.2.0` is an unreleased minor contract adoption. Publish/adopt it before Core,
+Gateway, or app runtime work that depends on `external_ingress` or
+`integration_request`, but do not treat the schema upgrade itself as capability
+enablement.
+
+- Apps that omit `external_ingress` preserve `0.1.0` parse/serialize behavior;
+  omission grants no public ingress.
+- Registration and runtime rollout depend on Core/Gateway adopting their own
+  snapshot, introspection, routing, and policy-enforcement behavior.
+- Core/Gateway must ignore `external_ingress` until their own snapshot,
+  introspection, routing, and policy-enforcement work lands.
+- Apps must ignore `integration_request` until they implement private external
+  ingress consumers; existing browser and lifecycle paths keep using
+  `app_request` and `lifecycle` semantics.
+- No Core, Gateway, or app domain behavior is enabled solely by upgrading this
+  package.
