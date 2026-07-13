@@ -17,11 +17,15 @@ Do not run that command as an operator release substitute. The real build-to-ver
 
 ## Recovery Gate
 
-Keep all release operations blocked until the reusable dry-run and release workflow isolation lands and passes review.
-A failure requires diagnosis and a corrective PR or later patch; do not blindly rerun, overwrite, or mutate tagged or published history.
+After the complete automation is merged, record the successful `Release dry run` push run ID and exact merged `main` SHA. Before any tag operation, verify the run used `.github/workflows/release-dry-run.yml`, has `event=push`, `head_branch=main`, the exact candidate `head_sha`, `status=completed`, and `conclusion=success`.
 
-After the complete release automation is merged, the exact merged `main` SHA must pass the non-publishing dry-run before any annotated `v0.2.1` tag can be authorized.
-PyPI publication and GitHub Release creation require separate, explicit irreversible authorization.
+Only after that evidence exists may separately authorized operators create an annotated tag whose message contains exactly one `dry-run-run-id: <id>` line and whose target is that SHA. Verify the run's `updated_at` is not later than the annotated tag's `tagger.date`. This ordering is auditable evidence, not cryptographic proof of local tag creation time.
+
+Tag creation and push, PyPI publication, and any GitHub Release remain outside this work unit and require later explicit irreversible authorization. The `pypi` environment must retain required-reviewer approval. Never substitute a local operator build.
+
+If dry-run fails, diagnose it and merge a corrective PR so a new main SHA gets a new run. A pre-publish failure may be retried only after diagnosis when source, tag, and artifacts are unchanged; source correction requires a later patch. For partial PyPI publication or a post-PyPI failure, inspect remote state before acting and never overwrite, retag, manually upload, or blindly rerun.
+
+CI actionlint is commit-pinned and time-bounded, with ShellCheck enabled for multiline release shell. Its pinned actionlint binary and any missing ShellCheck package are still transitive downloads, but the job is read-only and has no environment, OIDC, secret, or publish authority.
 
 ## Consumer Adoption
 
