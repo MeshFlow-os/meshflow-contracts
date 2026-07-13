@@ -2,9 +2,72 @@ import json
 from typing import Any
 
 import pytest
-from pydantic import ValidationError
+from pydantic import BaseModel, ConfigDict, Field, HttpUrl, ValidationError
 
 from meshflow_contracts.manifest import AppManifest, ExternalIngressDefinition
+
+
+class Legacy010Publisher(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    name: str
+
+
+class Legacy010ServiceDefinition(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    base_url: HttpUrl | str
+    health_url: str
+    manifest_url: str
+    openapi_url: str
+
+
+class Legacy010NavigationEntry(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    id: str
+    label: str
+    path: str
+    icon: str | None = None
+
+
+class Legacy010NavigationDefinition(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    entries: list[Legacy010NavigationEntry]
+
+
+class Legacy010PermissionDefinition(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    id: str
+    description: str
+
+
+class Legacy010SettingsDefinition(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    sections: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class Legacy010AppManifest(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    schema_version: str
+    app_id: str
+    slug: str
+    name: str
+    version: str
+    publisher: Legacy010Publisher
+    service: Legacy010ServiceDefinition
+    navigation: Legacy010NavigationDefinition
+    description: str | None = None
+    permissions: list[Legacy010PermissionDefinition] = Field(default_factory=list)
+    settings: Legacy010SettingsDefinition = Field(default_factory=Legacy010SettingsDefinition)
+    triggers: list[dict[str, Any]] = Field(default_factory=list)
+    actions: list[dict[str, Any]] = Field(default_factory=list)
+    jobs: list[dict[str, Any]] = Field(default_factory=list)
+    ai_tools: list[dict[str, Any]] = Field(default_factory=list)
 
 
 def manifest_data() -> dict[str, object]:
@@ -23,6 +86,18 @@ def manifest_data() -> dict[str, object]:
         },
         "navigation": {"entries": []},
     }
+
+
+LEGACY_MANIFEST_DUMP: dict[str, object] = {
+    **manifest_data(),
+    "description": None,
+    "permissions": [],
+    "settings": {"sections": []},
+    "triggers": [],
+    "actions": [],
+    "jobs": [],
+    "ai_tools": [],
+}
 
 
 def external_ingress_policy(**overrides: object) -> dict[str, object]:
@@ -61,6 +136,28 @@ def test_manifest_without_external_ingress_serializes_as_before() -> None:
     assert manifest.model_dump(exclude_defaults=True) == data
     assert "external_ingress" not in manifest.model_dump()
     assert "external_ingress" not in json.loads(manifest.model_dump_json())
+
+
+def test_legacy_010_manifest_fixture_preserves_ordinary_dump_and_json() -> None:
+    legacy_manifest = AppManifest.model_validate(manifest_data())
+
+    assert legacy_manifest.model_dump() == LEGACY_MANIFEST_DUMP
+    assert json.loads(legacy_manifest.model_dump_json()) == LEGACY_MANIFEST_DUMP
+    assert legacy_manifest.external_ingress == ()
+
+
+def test_external_ingress_is_additive_for_consumers_that_ignore_unknown_fields() -> None:
+    incoming_manifest = manifest_data()
+    incoming_manifest["external_ingress"] = [external_ingress_policy()]
+
+    serialized_manifest = AppManifest.model_validate(incoming_manifest).model_dump()
+    legacy_consumer_manifest = Legacy010AppManifest.model_validate(serialized_manifest)
+    consumer_view = legacy_consumer_manifest.model_dump()
+
+    assert Legacy010AppManifest.model_config["extra"] == "ignore"
+    assert "external_ingress" in serialized_manifest
+    assert not hasattr(legacy_consumer_manifest, "external_ingress")
+    assert consumer_view == LEGACY_MANIFEST_DUMP
 
 
 @pytest.mark.parametrize(
