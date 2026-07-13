@@ -1,0 +1,104 @@
+name: Verified release build
+
+on:
+  workflow_call: {}
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Check out exact candidate commit
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up uv and Python
+        uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
+        with:
+          version: "0.11.28"
+          python-version: "3.14.3"
+          enable-cache: true
+          cache-dependency-glob: |
+            build-constraints.txt
+            pyproject.toml
+            uv.lock
+
+      - name: Sync locked dependencies
+        run: uv sync --locked --all-groups
+
+      - name: Validate package version sources
+        id: package-version
+        run: |
+          set -euo pipefail
+          uv run --frozen python - <<'PY'
+          import os
+          import re
+          import tomllib
+          from pathlib import Path
+
+          from meshflow_contracts import __version__
+          from release_artifacts import VERSION
+
+          project = tomllib.loads(Path("pyproject.toml").read_text())
+          lock = tomllib.loads(Path("uv.lock").read_text())
+          version = project["project"]["version"]
+          locked = [p["version"] for p in lock["package"] if p["name"] == project["project"]["name"]]
+          if locked != [version] or __version__ != VERSION or VERSION != version:
+              raise ValueError("package version sources disagree")
+          if not re.fullmatch(r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)", version, re.ASCII):
+              raise ValueError("invalid package version")
+          wheel = f"meshflow_contracts-{version}-py3-none-any.whl"
+          sdist = f"meshflow_contracts-{version}.tar.gz"
+          with Path(os.environ["GITHUB_ENV"]).open("a") as env:
+              env.write(f"VERSION={version}\n")
+              env.write(f"WHEEL={wheel}\n")
+              env.write(f"SDIST={sdist}\n")
+          with Path(os.environ["GITHUB_OUTPUT"]).open("a") as output:
+              output.write(f"wheel={wheel}\n")
+              output.write(f"sdist={sdist}\n")
+          PY
+
+      - name: Run quality checks
+        run: |
+          set -euo pipefail
+          uv run --frozen pytest
+          uv run --frozen ruff check .
+          uv run --frozen mypy meshflow_contracts tests
+
+      - name: Build release artifacts once
+        run: uv build --clear --no-create-gitignore --build-constraints build-constraints.txt --require-hashes
+
+      - name: Verify and smoke-test release artifacts
+        run: |
+          set -euo pipefail
+          uv run --frozen python release_artifacts.py dist
+          uv venv --clear --python 3.14.3 .smoke-wheel
+          uv pip install --python .smoke-wheel/bin/python "dist/$WHEEL"
+          mkdir smoke-cwd
+          repo="$PWD"
+          (cd smoke-cwd && EXPECTED_VERSION="$VERSION" "$repo/.smoke-wheel/bin/python" -c 'import os, sys; from pathlib import Path; import meshflow_contracts; assert meshflow_contracts.__version__ == os.environ["EXPECTED_VERSION"]; assert Path(meshflow_contracts.__file__).resolve().is_relative_to(Path(sys.prefix).resolve())')
+          uv venv --clear --python 3.14.3 .smoke-sdist
+          uv pip install --python .smoke-sdist/bin/python --build-constraints build-constraints.txt "dist/$SDIST"
+          (cd smoke-cwd && EXPECTED_VERSION="$VERSION" "$repo/.smoke-sdist/bin/python" -c 'import os, sys; from pathlib import Path; import meshflow_contracts; assert meshflow_contracts.__version__ == os.environ["EXPECTED_VERSION"]; assert Path(meshflow_contracts.__file__).resolve().is_relative_to(Path(sys.prefix).resolve())')
+          mkdir release
+          cp "dist/$WHEEL" "dist/$SDIST" release/
+          (cd release && sha256sum "$WHEEL" "$SDIST" > SHA256SUMS)
+
+      - name: Upload verified release artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-${{ github.run_id }}-${{ github.sha }}
+          path: |
+            release/${{ steps.package-version.outputs.wheel }}
+            release/${{ steps.package-version.outputs.sdist }}
+            release/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 2

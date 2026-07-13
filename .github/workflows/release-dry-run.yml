@@ -1,0 +1,16 @@
+name: Release dry run
+
+on:
+  pull_request: {}
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    permissions:
+      contents: read
+    uses: ./.github/workflows/release-build.yml
