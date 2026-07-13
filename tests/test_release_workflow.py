@@ -12,6 +12,8 @@ ROOT = Path(__file__).parents[1]
 WORKFLOW_PATH = ROOT / ".github/workflows/release.yml"
 BUILD_PATH = ROOT / ".github/workflows/release-build.yml"
 DRY_RUN_PATH = ROOT / ".github/workflows/release-dry-run.yml"
+CI_PATH = ROOT / ".github/workflows/ci.yml"
+RELEASING_PATH = ROOT / "RELEASING.md"
 
 BUILDER_COMMANDS = (
     ("Sync locked dependencies", "uv sync --locked --all-groups"),
@@ -119,11 +121,106 @@ def execute_package_version_script(
 
 
 def steps(job: str) -> list[dict[str, Any]]:
-    return cast(list[dict[str, Any]], workflow()["jobs"][job]["steps"])
+    source = load_workflow(BUILD_PATH) if job == "build" else workflow()
+    return cast(list[dict[str, Any]], source["jobs"][job]["steps"])
 
 
 def step_index(job_steps: list[dict[str, Any]], name: str) -> int:
     return next(index for index, step in enumerate(job_steps) if step["name"] == name)
+
+
+def assert_closed_job(
+    job: dict[str, Any], keys: set[str], step_keys: list[set[str]]
+) -> None:
+    assert set(job) == keys
+    assert "if" not in job and "continue-on-error" not in job
+    assert [set(step) for step in job.get("steps", [])] == step_keys
+    assert all("if" not in step and "continue-on-error" not in step for step in job.get("steps", []))
+
+
+def assert_release_structure(config: dict[str, Any]) -> None:
+    jobs = config["jobs"]
+    assert_closed_job(
+        jobs["gate"],
+        {"runs-on", "timeout-minutes", "permissions", "steps"},
+        [{"name", "uses", "with"}, {"name", "env", "run"}],
+    )
+    assert jobs["build"] == {
+        "needs": "gate",
+        "permissions": {"contents": "read"},
+        "uses": "./.github/workflows/release-build.yml",
+    }
+    assert_closed_job(
+        jobs["publish"],
+        {"needs", "runs-on", "timeout-minutes", "environment", "permissions", "steps"},
+        [
+            {"name", "uses", "with"},
+            {"name", "uses", "with"},
+            {"name", "run"},
+            {"name", "uses", "with"},
+        ],
+    )
+    publish_steps = jobs["publish"]["steps"]
+    assert [step["name"] for step in publish_steps] == [
+        "Check out verifier at exact release commit",
+        "Download exact build artifact",
+        "Reverify downloaded artifacts",
+        "Publish once with PyPI Trusted Publishing",
+    ]
+    assert [step.get("uses") for step in publish_steps if "uses" in step] == [
+        "actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0",
+        "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c",
+        "pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b",
+    ]
+    text = str(publish_steps).lower()
+    assert not any(route in text for route in ("uv publish", "twine upload", "pip install", "password", "__token__"))
+
+
+def assert_actionlint_structure(job: dict[str, Any]) -> None:
+    assert_closed_job(
+        job,
+        {"name", "runs-on", "timeout-minutes", "permissions", "steps"},
+        [{"name", "uses", "with"}, {"name", "uses", "with"}],
+    )
+    assert (job["name"], job["runs-on"], job["timeout-minutes"], job["permissions"]) == ("actionlint", "ubuntu-latest", 5, {"contents": "read"})
+    assert [step["name"] for step in job["steps"]] == [
+        "Check out repository",
+        "Lint GitHub Actions workflows",
+    ]
+    assert job["steps"][0] == {"name": "Check out repository", "uses": "actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0", "with": {"persist-credentials": "false"}}
+    assert job["steps"][1] == {
+        "name": "Lint GitHub Actions workflows",
+        "uses": "raven-actions/actionlint@3d39aea434753780c3b3d4a1a31c854b4dbf49d7",
+        "with": {"version": "1.7.12", "files": ".github/workflows/*.yml", "shellcheck": "true", "pyflakes": "false"},
+    }
+
+
+def assert_gate_evidence_contract(run: str) -> None:
+    for repeated in ("gh api --fail-with-body", "Accept: application/vnd.github+json", "X-GitHub-Api-Version: 2022-11-28"):
+        assert run.count(repeated) == 3, "missing release evidence contract"
+    required = (
+        'test "$EXPECTED_SHA" = "$EVENT_AFTER"',
+        'encoded_tag="$(jq -rn',
+        "/git/ref/tags/${encoded_tag}",
+        "/actions/runs/${dry_run_id}",
+        "jq -e --arg ref",
+        '.ref == $ref and .object.type == "tag"',
+        '.tag == $tag and .sha == $tag_sha',
+        '.object.type == "commit" and .object.sha == $sha',
+        'jq -e --arg repo "$REPOSITORY" --arg sha "$EXPECTED_SHA"',
+        '.name == "Release dry run"',
+        '.path == ".github/workflows/release-dry-run.yml"',
+        '.event == "push"',
+        '.head_branch == "main"',
+        ".head_repository.full_name == $repo",
+        ".head_sha == $sha",
+        '.status == "completed"',
+        '.conclusion == "success"',
+        "completed_at=\"$(jq -er '.updated_at'",
+        "tagged_at=\"$(jq -er '.tagger.date'",
+        'test "$(date -d "$completed_at" +%s)" -le "$(date -d "$tagged_at" +%s)"',
+    )
+    assert all(item in run for item in required), "missing release evidence contract"
 
 
 def assert_builder_command_contract(build_steps: list[dict[str, Any]]) -> None:
@@ -148,12 +245,15 @@ def test_trigger_concurrency_permissions_and_jobs_are_exact() -> None:
         "group": "${{ github.workflow }}-${{ github.ref }}",
         "cancel-in-progress": "false",
     }
-    assert set(jobs) == {"build", "publish"}
+    assert set(jobs) == {"gate", "build", "publish"}
+    assert jobs["gate"]["permissions"] == {"actions": "read", "contents": "read"}
     assert jobs["build"]["permissions"] == {"contents": "read"}
-    assert "environment" not in jobs["build"]
-    assert jobs["publish"]["needs"] == "build"
+    assert jobs["build"]["needs"] == "gate"
+    assert jobs["build"]["uses"] == "./.github/workflows/release-build.yml"
+    assert jobs["publish"]["needs"] == ["gate", "build"]
     assert jobs["publish"]["environment"] == "pypi"
     assert jobs["publish"]["permissions"] == {"contents": "read", "id-token": "write"}
+    assert_release_structure(config)
 
 
 def test_actions_and_security_relevant_inputs_are_exact() -> None:
@@ -180,8 +280,8 @@ def test_actions_and_security_relevant_inputs_are_exact() -> None:
         "cache-dependency-glob": "build-constraints.txt\npyproject.toml\nuv.lock\n",
     }
     assert build_steps[-1]["with"] == {
-        "name": "release-${{ github.run_id }}",
-        "path": "release/meshflow_contracts-0.2.1-py3-none-any.whl\nrelease/meshflow_contracts-0.2.1.tar.gz\nrelease/SHA256SUMS\n",
+        "name": "release-${{ github.run_id }}-${{ github.sha }}",
+        "path": "release/${{ steps.package-version.outputs.wheel }}\nrelease/${{ steps.package-version.outputs.sdist }}\nrelease/SHA256SUMS\n",
         "if-no-files-found": "error",
         "retention-days": 2,
     }
@@ -190,11 +290,8 @@ def test_actions_and_security_relevant_inputs_are_exact() -> None:
         "persist-credentials": "false",
     }
     assert publish_steps[1]["with"] == {
-        "name": "release-${{ github.run_id }}",
+        "name": "release-${{ github.run_id }}-${{ github.sha }}",
         "path": "release",
-        "github-token": "${{ github.token }}",
-        "repository": "${{ github.repository }}",
-        "run-id": "${{ github.run_id }}",
     }
     assert publish_steps[-1]["with"] == {
         "packages-dir": "dist",
@@ -233,32 +330,31 @@ def test_build_quality_precedes_one_build_and_artifact_verification() -> None:
     assert all(text in build_steps[verify]["run"] for text in ("smoke-cwd", "meshflow_contracts.__file__"))
 
 
-def test_publish_reverifies_downloaded_artifacts_before_remote_gate_and_publish() -> None:
+def test_publish_reverifies_same_run_artifacts_without_rebuilding() -> None:
     publish_steps = steps("publish")
-    download, verify, gate, publish = (
+    download, verify, publish = (
         step_index(publish_steps, name)
         for name in (
             "Download exact build artifact",
             "Reverify downloaded artifacts",
-            "Revalidate remote annotated tag",
             "Publish once with PyPI Trusted Publishing",
         )
     )
-    assert download < verify < gate < publish
+    assert download < verify < publish
     assert "sha256sum --check SHA256SUMS" in publish_steps[verify]["run"]
     assert "python release_artifacts.py dist" in publish_steps[verify]["run"]
+    assert "uv build" not in WORKFLOW_PATH.read_text()
     assert publish_steps[publish]["with"].keys().isdisjoint(
         {"user", "password", "token", "repository-url"}
     )
 
 
 def test_shell_steps_fail_closed_and_remote_tag_gate_is_exact() -> None:
-    config = workflow()
-    for job in config["jobs"]:
+    for job in ("gate", "publish"):
         for step in steps(job):
             if "\n" in step.get("run", ""):
                 assert step["run"].startswith("set -euo pipefail\n")
-    gate = steps("publish")[step_index(steps("publish"), "Revalidate remote annotated tag")]
+    gate = steps("gate")[step_index(steps("gate"), "Validate tag and recorded dry-run evidence")]
     assert gate["env"] == {
         "GH_TOKEN": "${{ github.token }}",
         "TAG_NAME": "${{ github.ref_name }}",
@@ -268,8 +364,7 @@ def test_shell_steps_fail_closed_and_remote_tag_gate_is_exact() -> None:
     }
     for required in (
         'object.type == "tag"', "/git/tags/", ".tag == $tag", 'object.type == "commit"',
-        'test "$EXPECTED_SHA" = "$EVENT_AFTER"', 'test "$peeled_sha" = "$EXPECTED_SHA"',
-        'test "$peeled_sha" = "$EVENT_AFTER"',
+        'test "$EXPECTED_SHA" = "$EVENT_AFTER"',
     ):
         assert required in gate["run"]
 
@@ -440,3 +535,88 @@ def test_dry_run_only_delegates_from_pull_requests_and_main_pushes() -> None:
     ):
         assert forbidden not in text
     assert all(command not in DRY_RUN_PATH.read_text() for command in ("uv build", "release_artifacts.py"))
+
+
+def test_release_gate_requires_unique_exact_dry_run_evidence_before_build() -> None:
+    gate = steps("gate")[step_index(steps("gate"), "Validate tag and recorded dry-run evidence")]
+    run = gate["run"]
+
+    for required in (
+        "git cat-file -t",
+        'git rev-parse "${tag_ref}^{commit}"',
+        'test "$TAG_NAME" = "v$version"',
+        "test \"$(grep -c '^dry-run-run-id: [0-9][0-9]*$' <<<\"$tag_body\")\" = 1",
+        "dry_run_id=\"$(sed -n 's/^dry-run-run-id: \\([0-9][0-9]*\\)$/\\1/p'",
+        "/actions/runs/${dry_run_id}",
+        '.event == "push"',
+        '.head_branch == "main"',
+        ".head_sha == $sha",
+        '.status == "completed"',
+        '.conclusion == "success"',
+        '.path == ".github/workflows/release-dry-run.yml"',
+        "completed_at=\"$(jq -er '.updated_at'",
+        "tagged_at=\"$(jq -er '.tagger.date'",
+        'test "$(date -d "$completed_at" +%s)" -le "$(date -d "$tagged_at" +%s)"',
+    ):
+        assert required in run
+    assert_gate_evidence_contract(run)
+
+
+def test_release_permissions_artifact_identity_and_actionlint_are_isolated() -> None:
+    release = workflow()
+    publish = release["jobs"]["publish"]
+    release_text = WORKFLOW_PATH.read_text()
+
+    assert release["jobs"]["build"]["uses"] == "./.github/workflows/release-build.yml"
+    assert publish["environment"] == "pypi"
+    assert publish["permissions"] == {"contents": "read", "id-token": "write"}
+    assert release_text.count("id-token: write") == 1
+    assert "release-${{ github.run_id }}-${{ github.sha }}" in release_text
+    assert "sha256sum --check SHA256SUMS" in release_text
+    assert "attestations: true" in release_text
+    assert "secrets." not in release_text
+
+    actionlint = load_workflow(CI_PATH)["jobs"]["actionlint"]
+    assert actionlint["timeout-minutes"] == 5
+    assert actionlint["permissions"] == {"contents": "read"}
+    lint_step = actionlint["steps"][1]
+    assert lint_step["uses"] == "raven-actions/actionlint@3d39aea434753780c3b3d4a1a31c854b4dbf49d7"
+    assert lint_step["with"] == {
+        "version": "1.7.12",
+        "files": ".github/workflows/*.yml",
+        "shellcheck": "true",
+        "pyflakes": "false",
+    }
+    assert_actionlint_structure(actionlint)
+
+
+def test_runbook_requires_recorded_main_evidence_and_forbids_operator_shortcuts() -> None:
+    runbook = RELEASING_PATH.read_text()
+    for required in (
+        "exact merged `main` SHA",
+        "successful `Release dry run`",
+        "`dry-run-run-id: <id>`",
+        "`updated_at`",
+        "`tagger.date`",
+        "later explicit irreversible authorization",
+        "Never substitute a local operator build",
+        "never overwrite, retag, manually upload, or blindly rerun",
+        "`v0.2.0` remains an immutable failed, unpublished tag",
+    ):
+        assert required in runbook
+
+
+@pytest.mark.parametrize(
+    "required",
+    (
+        "gh api --fail-with-body",
+        '.head_repository.full_name == $repo',
+        "completed_at=\"$(jq -er '.updated_at'",
+    ),
+)
+def test_release_gate_contract_rejects_representative_removals(required: str) -> None:
+    gate = steps("gate")[step_index(steps("gate"), "Validate tag and recorded dry-run evidence")]
+    mutated = gate["run"].replace(required, "", 1)
+
+    with pytest.raises(AssertionError, match="missing release evidence contract"):
+        assert_gate_evidence_contract(mutated)
