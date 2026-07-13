@@ -37,7 +37,7 @@ def test_recovery_version_authorities_are_consistently_0_2_1() -> None:
         for package in lock["package"]
         if package["name"] == PYPROJECT["project"]["name"]
     ]
-    workflow = (PROJECT_ROOT / ".github/workflows/release.yml").read_text()
+    workflow = (PROJECT_ROOT / ".github/workflows/release-build.yml").read_text()
     readme = (PROJECT_ROOT / "README.md").read_text()
     changelog = (PROJECT_ROOT / "CHANGELOG.md").read_text()
     releasing = (PROJECT_ROOT / "RELEASING.md").read_text()
@@ -46,9 +46,12 @@ def test_recovery_version_authorities_are_consistently_0_2_1() -> None:
     assert meshflow_contracts.__version__ == expected_version
     assert release_artifacts.VERSION == expected_version
     assert locked_versions == [expected_version]
-    assert "meshflow_contracts-0.2.1-py3-none-any.whl" in workflow
-    assert "meshflow_contracts-0.2.1.tar.gz" in workflow
-    assert 'assert meshflow_contracts.__version__ == "0.2.1"' in workflow
+    assert "__version__ != VERSION or VERSION != version" in workflow
+    assert 'env.write(f"VERSION={version}\\n")' in workflow
+    assert 'output.write(f"wheel={wheel}\\n")' in workflow
+    assert 'output.write(f"sdist={sdist}\\n")' in workflow
+    assert 'EXPECTED_VERSION="$VERSION"' in workflow
+    assert 'meshflow_contracts.__version__ == os.environ["EXPECTED_VERSION"]' in workflow
     assert 'pip install "meshflow-contracts~=0.2.1"' in readme
     assert "## 0.2.1" in changelog
     assert "`v0.2.0` remains an immutable failed, unpublished tag" in releasing
