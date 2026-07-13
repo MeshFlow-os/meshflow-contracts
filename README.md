@@ -7,11 +7,11 @@ Rule of thumb: if a model is only used by one app, it does not belong here.
 ## Installation
 
 This package is preparing for public PyPI publication. After the release is
-published, install the supported `0.2` line with `pip install "meshflow-contracts~=0.2.0"`.
+published, install the supported `0.2` line with `pip install "meshflow-contracts~=0.2.1"`.
 Until then, consumers must not assume the distribution is available on PyPI.
 
 Maintainers: use the package-specific [release and adoption runbook](RELEASING.md).
-It describes release gates without implying that `0.2.0` is already published.
+It describes release gates without implying that `0.2.1` is already published.
 
 ## External ingress manifests
 
@@ -51,12 +51,13 @@ issuer remain runtime responsibilities alongside signing, minting, JWKS
 validation, replay handling, routing, lifecycle status, error taxonomy, and grant
 persistence.
 
-## 0.2.0 rollout notes
+## 0.2.1 recovery rollout notes
 
-`0.2.0` is an unreleased minor contract adoption. Publish/adopt it before Core,
-Gateway, or app runtime work that depends on `external_ingress` or
-`integration_request`, but do not treat the schema upgrade itself as capability
-enablement.
+The failed `v0.2.0` tag is immutable unpublished history. It must never be moved,
+reused, published, or turned into a GitHub Release. `0.2.1` is the only recovery
+candidate, and consumers must wait for its public package verification. Core
+adopts the verified package before Gateway; the schema upgrade alone does not
+enable runtime capabilities.
 
 - Apps that omit `external_ingress` preserve `0.1.0` parse/serialize behavior;
   omission grants no public ingress.

@@ -73,7 +73,7 @@ def test_actions_and_security_relevant_inputs_are_exact() -> None:
     }
     assert build_steps[-1]["with"] == {
         "name": "release-${{ github.run_id }}",
-        "path": "release/meshflow_contracts-0.2.0-py3-none-any.whl\nrelease/meshflow_contracts-0.2.0.tar.gz\nrelease/SHA256SUMS\n",
+        "path": "release/meshflow_contracts-0.2.1-py3-none-any.whl\nrelease/meshflow_contracts-0.2.1.tar.gz\nrelease/SHA256SUMS\n",
         "if-no-files-found": "error",
         "retention-days": 2,
     }
@@ -119,7 +119,7 @@ def test_build_quality_precedes_one_build_and_artifact_verification() -> None:
         "uv run --frozen mypy meshflow_contracts tests",
     ))
     assert build_steps[build]["run"].count(
-        "uv build --build-constraints build-constraints.txt --require-hashes"
+        "uv build --clear --no-create-gitignore --build-constraints build-constraints.txt --require-hashes"
     ) == 1
     assert "uv run --frozen python release_artifacts.py dist" in build_steps[verify]["run"]
 

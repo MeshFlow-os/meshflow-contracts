@@ -4,7 +4,7 @@ build-backend = "uv_build"
 
 [project]
 name = "meshflow-contracts"
-version = "0.2.0"
+version = "0.2.1"
 description = "Shared MeshFlow platform contracts."
 readme = "README.md"
 requires-python = ">=3.14"
@@ -52,6 +52,9 @@ plugins = ["pydantic.mypy"]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
+markers = [
+    "integration: builds and smoke-installs real release distributions",
+]
 
 [tool.uv]
 required-version = "==0.11.28"
