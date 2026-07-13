@@ -1,10 +1,21 @@
 # Changelog
+## 0.2.1
+
+- Recover the failed unpublished `v0.2.0` release without changing its immutable
+  tag or creating a GitHub Release for it.
+- Build release distributions with a clean output directory and without uv's
+  generated `dist/.gitignore`, while preserving the verifier's exact allowlist.
+- Add a pinned-uv build, verifier, wheel, and sdist integration regression for
+  isolated non-publishing CI verification.
+- Keep consumer adoption blocked until the public `0.2.1` package is verified;
+  Core adopts before Gateway.
+
 ## 0.2.0
 
 - Prepare Apache-2.0 licensing, public PyPI metadata, uv_build configuration,
   Pydantic 2 compatibility bounds, and typed-package metadata for release.
-- Keep artifact build, inspection, and install/import smoke verification deferred
-  to the R0.7/R0.9 release workflow gates; this version remains unreleased.
+- Record this version as a failed, unpublished, immutable release attempt. It
+  must not be retagged, published, or represented by a GitHub Release.
 - Add the optional `external_ingress` app manifest contract.
 - Preserve validation and compatible serialization for manifests that omit it.
 - Reject duplicate capability ids, unsafe methods, non-strict numeric limits,
