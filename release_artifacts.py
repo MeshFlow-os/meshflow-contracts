@@ -35,20 +35,32 @@ def bounded_read(stream: IO[bytes], limit: int) -> bytes:
     return data
 
 
-def safe_paths(names: list[str]) -> list[str]:
+def canonical_path(name: str) -> str:
+    return name[:-1] if name.endswith("/") else name
+
+
+def safe_paths(names: list[str], expected_directories: set[str] | None = None) -> list[str]:
+    expected_directories = expected_directories or set()
+    canonical_names = []
     for name in names:
+        canonical = canonical_path(name)
         if (
             not name
+            or not canonical
             or "\\" in name
             or any(unicodedata.category(character) == "Cc" for character in name)
-            or PurePosixPath(name).is_absolute()
-            or posixpath.normpath(name) != name
-            or ".." in PurePosixPath(name).parts
+            or PurePosixPath(canonical).is_absolute()
+            or posixpath.normpath(canonical) != canonical
+            or any(part in {".", ".."} for part in PurePosixPath(canonical).parts)
         ):
             fail(f"unsafe archive path: {name!r}")
-    if len(names) != len(set(names)):
+        canonical_names.append(canonical)
+    if len(canonical_names) != len(set(canonical_names)):
         fail("duplicate normalized archive path")
-    return names
+    for name, canonical in zip(names, canonical_names, strict=True):
+        if name.endswith("/") and canonical not in expected_directories:
+            fail(f"unsafe archive path: {name!r}")
+    return canonical_names
 
 
 def verify_metadata(raw: bytes, version: str) -> None:
@@ -98,6 +110,7 @@ def verify(
         f"{dist_info}/RECORD",
         f"{dist_info}/licenses/LICENSE",
     }
+    wheel_directories = {PACKAGE, dist_info, f"{dist_info}/licenses"}
     with zipfile.ZipFile(directory / wheel_name) as archive:
         entries = archive.infolist()
         total = 0
@@ -110,11 +123,19 @@ def verify(
                 or entry.file_size > max(entry.compress_size, 1) * MAX_ZIP_RATIO
             ):
                 fail("zip member exceeds resource limit")
-        names = safe_paths([entry.filename for entry in entries])
-        if set(names) != wheel_files:
+        names = safe_paths([entry.filename for entry in entries], wheel_directories)
+        if set(names) != wheel_files | wheel_directories:
             fail("wheel content differs from the exact allowlist")
-        if any(not stat.S_ISREG(entry.external_attr >> 16) for entry in entries):
-            fail("wheel members must be regular files")
+        for entry in entries:
+            if entry.create_system != 3:
+                fail("wheel regular file and directory members require Unix metadata")
+            mode = entry.external_attr >> 16
+            canonical = canonical_path(entry.filename)
+            if canonical in wheel_directories:
+                if not entry.filename.endswith("/") or not entry.is_dir() or not stat.S_ISDIR(mode):
+                    fail("wheel directory members must be explicit directories")
+            elif entry.filename.endswith("/") or entry.is_dir() or not stat.S_ISREG(mode):
+                fail("wheel file members must be regular files")
         with archive.open(f"{dist_info}/METADATA") as metadata_file:
             verify_metadata(bounded_read(metadata_file, MAX_MEMBER_BYTES), version)
         with archive.open(f"{dist_info}/licenses/LICENSE") as wheel_license:
@@ -137,18 +158,18 @@ def verify(
                 fail("sparse tar members are forbidden")
             if (
                 (
-                    member.name in sdist_files
+                    canonical_path(member.name) in sdist_files
                     and member.type not in (tarfile.REGTYPE, tarfile.AREGTYPE)
                 )
-                or (member.name in sdist_directories and member.type != tarfile.DIRTYPE)
-                or member.name not in sdist_files | sdist_directories
+                or (canonical_path(member.name) in sdist_directories and member.type != tarfile.DIRTYPE)
+                or canonical_path(member.name) not in sdist_files | sdist_directories
             ):
                 fail("sdist member types differ from the exact contract")
-        names = safe_paths([member.name for member in members])
+        names = safe_paths([member.name for member in members], sdist_directories)
         if set(names) != sdist_files | sdist_directories:
             fail("sdist content differs from the exact allowlist")
-        tar_metadata = archive.extractfile(next(m for m in members if m.name == f"{root}/PKG-INFO"))
-        tar_license = archive.extractfile(next(m for m in members if m.name == f"{root}/LICENSE"))
+        tar_metadata = archive.extractfile(next(m for m in members if canonical_path(m.name) == f"{root}/PKG-INFO"))
+        tar_license = archive.extractfile(next(m for m in members if canonical_path(m.name) == f"{root}/LICENSE"))
         if tar_metadata is None or tar_license is None:
             fail("sdist metadata or LICENSE is unreadable")
         verify_metadata(bounded_read(tar_metadata, MAX_MEMBER_BYTES), version)

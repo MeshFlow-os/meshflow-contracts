@@ -71,9 +71,8 @@ enable runtime capabilities.
 - No Core, Gateway, or app domain behavior is enabled solely by upgrading this
   package.
 
-Packaging metadata, licensing, and source-level checks are ready for the release
-workflow. Wheel/sdist build, artifact inspection, and install/import smoke tests
-remain deferred to the R0.7/R0.9 release gates.
+Packaging metadata, licensing, source-level checks, strict artifact inspection, and
+wheel/sdist smoke tests are enforced by release CI before consumer adoption.
 
 ## License
 

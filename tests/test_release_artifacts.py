@@ -13,6 +13,7 @@ import release_artifacts
 
 ROOT = Path(__file__).parents[1]
 REGULAR_MODE = stat.S_IFREG | 0o644
+DIRECTORY_MODE = stat.S_IFDIR | 0o755
 VERSION = "0.2.1"
 
 
@@ -21,9 +22,9 @@ def metadata(**changes: str) -> bytes:
     return ("\n".join(f"{key}: {value}" for key, value in fields.items()) + "\n\n").encode()
 
 
-def add_zip_file(archive: zipfile.ZipFile, name: str, content: bytes, mode: int) -> None:
+def add_zip_file(archive: zipfile.ZipFile, name: str, content: bytes, mode: int, system: int = 3) -> None:
     entry = zipfile.ZipInfo(name)
-    entry.create_system = 3
+    entry.create_system = system
     entry.external_attr = mode << 16
     archive.writestr(entry, content)
 
@@ -38,6 +39,7 @@ def synthetic_dist(
     *,
     wheel_extra: tuple[str, int] | None = None,
     wheel_mode: tuple[str, int] | None = None,
+    wheel_system: str | None = None,
     sdist_extra: tuple[str, bytes] | None = None,
     sdist_type: tuple[str, bytes] | None = None,
     sdist_sparse: bool = False,
@@ -62,9 +64,12 @@ def synthetic_dist(
         wheel_files.append((wheel_extra[0], b"forbidden"))
     wheel = directory / f"meshflow_contracts-{VERSION}-py3-none-any.whl"
     with zipfile.ZipFile(wheel, "w") as archive:
+        for name in ("meshflow_contracts/", f"{info}/", f"{info}/licenses/"):
+            mode = wheel_mode[1] if wheel_mode and name == wheel_mode[0] else DIRECTORY_MODE
+            add_zip_file(archive, name, b"", mode, 0 if name == wheel_system else 3)
         for name, content in wheel_files:
             mode = wheel_mode[1] if wheel_mode and name == wheel_mode[0] else REGULAR_MODE
-            add_zip_file(archive, name, content, mode)
+            add_zip_file(archive, name, content, mode, 0 if name == wheel_system else 3)
 
     root = f"meshflow_contracts-{VERSION}"
     source = [(name, b"x") for name in release_artifacts.MODULE_FILES]
@@ -121,7 +126,7 @@ def test_valid_archives_and_supplied_hashes_are_accepted(tmp_path: Path) -> None
 
 
 @pytest.mark.parametrize("kind", ["wheel", "sdist"])
-@pytest.mark.parametrize("path", ["../x", "/x", "tests\\x.py", "bad\x01name", "a//b", "a/../b", ".env", "tests/x.py"])  # fmt: skip
+@pytest.mark.parametrize("path", ["../x", "/x", "tests\\x.py", "bad\x01name", "a//b", "a/../b", "meshflow_contracts//", "meshflow_contracts///", ".env", "tests/x.py"])  # fmt: skip
 def test_rejects_unsafe_unexpected_and_sensitive_paths(
     tmp_path: Path, kind: str, path: str
 ) -> None:
@@ -136,8 +141,7 @@ def test_rejects_duplicate_members(tmp_path: Path, kind: str) -> None:
     dist = tmp_path / "dist"
     duplicate = "meshflow_contracts/auth.py"
     if kind == "wheel":
-        with pytest.warns(UserWarning, match="Duplicate name"):
-            synthetic_dist(dist, wheel_extra=(duplicate, REGULAR_MODE))
+        synthetic_dist(dist, wheel_extra=(f"{duplicate}/", DIRECTORY_MODE))
     else:
         synthetic_dist(dist, sdist_extra=(f"meshflow_contracts-{VERSION}/{duplicate}", tarfile.REGTYPE))
     with pytest.raises(ValueError, match="duplicate normalized"):
@@ -145,7 +149,11 @@ def test_rejects_duplicate_members(tmp_path: Path, kind: str) -> None:
 
 
 MEMBER_CASES = [
+    ({"wheel_system": "meshflow_contracts/auth.py"}, "regular"),
+    ({"wheel_system": "meshflow_contracts/"}, "directory"),
     ({"wheel_mode": ("meshflow_contracts/auth.py", stat.S_IFLNK | 0o777)}, "regular"),
+    ({"wheel_mode": ("meshflow_contracts/", REGULAR_MODE)}, "directory"),
+    ({"wheel_mode": ("meshflow_contracts/auth.py", DIRECTORY_MODE)}, "regular"),
     *[
         (
             {"sdist_type": (f"meshflow_contracts-{VERSION}/meshflow_contracts/auth.py", kind)},

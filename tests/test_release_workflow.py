@@ -122,6 +122,7 @@ def test_build_quality_precedes_one_build_and_artifact_verification() -> None:
         "uv build --clear --no-create-gitignore --build-constraints build-constraints.txt --require-hashes"
     ) == 1
     assert "uv run --frozen python release_artifacts.py dist" in build_steps[verify]["run"]
+    assert all(text in build_steps[verify]["run"] for text in ("smoke-cwd", "meshflow_contracts.__file__"))
 
 
 def test_publish_reverifies_downloaded_artifacts_before_remote_gate_and_publish() -> None:

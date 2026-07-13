@@ -91,10 +91,12 @@ jobs:
           uv run --frozen python release_artifacts.py dist
           uv venv --clear --python 3.14.3 .smoke-wheel
           uv pip install --python .smoke-wheel/bin/python dist/meshflow_contracts-0.2.1-py3-none-any.whl
-          .smoke-wheel/bin/python -c 'import meshflow_contracts; assert meshflow_contracts.__version__ == "0.2.1"'
+          mkdir smoke-cwd
+          repo="$PWD"
+          (cd smoke-cwd && "$repo/.smoke-wheel/bin/python" -c 'import sys; from pathlib import Path; import meshflow_contracts; assert meshflow_contracts.__version__ == "0.2.1"; assert Path(meshflow_contracts.__file__).resolve().is_relative_to(Path(sys.prefix).resolve())')
           uv venv --clear --python 3.14.3 .smoke-sdist
           uv pip install --python .smoke-sdist/bin/python --build-constraints build-constraints.txt dist/meshflow_contracts-0.2.1.tar.gz
-          .smoke-sdist/bin/python -c 'import meshflow_contracts; assert meshflow_contracts.__version__ == "0.2.1"'
+          (cd smoke-cwd && "$repo/.smoke-sdist/bin/python" -c 'import sys; from pathlib import Path; import meshflow_contracts; assert meshflow_contracts.__version__ == "0.2.1"; assert Path(meshflow_contracts.__file__).resolve().is_relative_to(Path(sys.prefix).resolve())')
           mkdir release
           cp dist/meshflow_contracts-0.2.1-py3-none-any.whl release/
           cp dist/meshflow_contracts-0.2.1.tar.gz release/
