@@ -4,6 +4,12 @@ Shared Pydantic contracts used by Core, Gateway, and MeshFlow apps.
 
 Rule of thumb: if a model is only used by one app, it does not belong here.
 
+## Installation
+
+This package is preparing for public PyPI publication. After the release is
+published, install the supported `0.2` line with `pip install "meshflow-contracts~=0.2.0"`.
+Until then, consumers must not assume the distribution is available on PyPI.
+
 ## External ingress manifests
 
 Apps may declare optional generic external ingress capabilities through
@@ -60,3 +66,13 @@ enablement.
   `app_request` and `lifecycle` semantics.
 - No Core, Gateway, or app domain behavior is enabled solely by upgrading this
   package.
+
+Packaging metadata, licensing, and source-level checks are ready for the release
+workflow. Wheel/sdist build, artifact inspection, and install/import smoke tests
+remain deferred to the R0.7/R0.9 release gates.
+
+## License
+
+Licensed under the Apache License 2.0. See [LICENSE](LICENSE).
+
+Copyright 2026 MeshFlow contributors.

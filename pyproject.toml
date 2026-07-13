@@ -1,12 +1,35 @@
+[build-system]
+requires = ["uv_build>=0.11.28,<0.12"]
+build-backend = "uv_build"
+
 [project]
 name = "meshflow-contracts"
 version = "0.2.0"
 description = "Shared MeshFlow platform contracts."
 readme = "README.md"
 requires-python = ">=3.14"
-dependencies = [
-    "pydantic>=2.13.4",
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+authors = [
+    { name = "MeshFlow contributors" },
 ]
+keywords = ["meshflow", "contracts", "pydantic", "schemas"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.14",
+    "Typing :: Typed",
+]
+dependencies = [
+    "pydantic>=2.13.4,<3",
+]
+
+[project.urls]
+Repository = "https://github.com/MeshFlow-os/meshflow-contracts"
+Issues = "https://github.com/MeshFlow-os/meshflow-contracts/issues"
+Changelog = "https://github.com/MeshFlow-os/meshflow-contracts/blob/main/CHANGELOG.md"
 
 [dependency-groups]
 dev = [
@@ -27,3 +50,10 @@ plugins = ["pydantic.mypy"]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
+
+[tool.uv]
+required-version = "==0.11.28"
+
+[tool.uv.build-backend]
+module-root = ""
+module-name = "meshflow_contracts"

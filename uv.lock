@@ -112,7 +112,7 @@ wheels = [
 [[package]]
 name = "meshflow-contracts"
 version = "0.2.0"
-source = { virtual = "." }
+source = { editable = "." }
 dependencies = [
     { name = "pydantic" },
 ]
@@ -125,7 +125,7 @@ dev = [
 ]
 
 [package.metadata]
-requires-dist = [{ name = "pydantic", specifier = ">=2.13.4" }]
+requires-dist = [{ name = "pydantic", specifier = ">=2.13.4,<3" }]
 
 [package.metadata.requires-dev]
 dev = [
