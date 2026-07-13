@@ -10,6 +10,9 @@ This package is preparing for public PyPI publication. After the release is
 published, install the supported `0.2` line with `pip install "meshflow-contracts~=0.2.0"`.
 Until then, consumers must not assume the distribution is available on PyPI.
 
+Maintainers: use the package-specific [release and adoption runbook](RELEASING.md).
+It describes release gates without implying that `0.2.0` is already published.
+
 ## External ingress manifests
 
 Apps may declare optional generic external ingress capabilities through
