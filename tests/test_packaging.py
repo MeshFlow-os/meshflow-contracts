@@ -29,8 +29,8 @@ def test_public_package_metadata_is_release_ready() -> None:
     }
 
 
-def test_recovery_version_authorities_are_consistently_0_2_1() -> None:
-    expected_version = "0.2.1"
+def test_recovery_version_authorities_are_consistently_0_2_2() -> None:
+    expected_version = "0.2.2"
     lock = tomllib.loads((PROJECT_ROOT / "uv.lock").read_text())
     locked_versions = [
         package["version"]
@@ -52,10 +52,10 @@ def test_recovery_version_authorities_are_consistently_0_2_1() -> None:
     assert 'output.write(f"sdist={sdist}\\n")' in workflow
     assert 'EXPECTED_VERSION="$VERSION"' in workflow
     assert 'meshflow_contracts.__version__ == os.environ["EXPECTED_VERSION"]' in workflow
-    assert 'pip install "meshflow-contracts~=0.2.1"' in readme
-    assert "## 0.2.1" in changelog
-    assert "`v0.2.0` remains an immutable failed, unpublished tag" in releasing
-    assert "Core adopts `0.2.1` before Gateway" in releasing
+    assert 'pip install "meshflow-contracts~=0.2.2"' in readme
+    assert "## 0.2.2" in changelog
+    assert "`v0.2.0` and `v0.2.1` remain immutable failed, unpublished tags" in releasing
+    assert "Core adopts `0.2.2` before Gateway" in releasing
 
 
 def test_uv_build_uses_supported_backend_and_flat_layout() -> None:
