@@ -44,11 +44,11 @@ jobs:
           test "$(grep -c '^dry-run-run-id: [0-9][0-9]*$' <<<"$tag_body")" = 1
           dry_run_id="$(sed -n 's/^dry-run-run-id: \([0-9][0-9]*\)$/\1/p' <<<"$tag_body")"
           encoded_tag="$(jq -rn --arg value "$TAG_NAME" '$value | @uri')"
-          ref_json="$(gh api --fail-with-body -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2022-11-28' "/repos/${REPOSITORY}/git/ref/tags/${encoded_tag}")"
+          ref_json="$(gh api -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2022-11-28' "/repos/${REPOSITORY}/git/ref/tags/${encoded_tag}")"
           jq -e --arg ref "$tag_ref" --arg tag_sha "$tag_object_sha" '.ref == $ref and .object.type == "tag" and .object.sha == $tag_sha' <<<"$ref_json" >/dev/null
-          tag_json="$(gh api --fail-with-body -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2022-11-28' "/repos/${REPOSITORY}/git/tags/${tag_object_sha}")"
+          tag_json="$(gh api -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2022-11-28' "/repos/${REPOSITORY}/git/tags/${tag_object_sha}")"
           jq -e --arg tag "$TAG_NAME" --arg tag_sha "$tag_object_sha" --arg sha "$peeled_commit_sha" '.tag == $tag and .sha == $tag_sha and .object.type == "commit" and .object.sha == $sha' <<<"$tag_json" >/dev/null
-          run_json="$(gh api --fail-with-body -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2022-11-28' "/repos/${REPOSITORY}/actions/runs/${dry_run_id}")"
+          run_json="$(gh api -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2022-11-28' "/repos/${REPOSITORY}/actions/runs/${dry_run_id}")"
           jq -e --arg repo "$REPOSITORY" --arg sha "$peeled_commit_sha" '.name == "Release dry run" and .path == ".github/workflows/release-dry-run.yml" and .event == "push" and .head_branch == "main" and .head_repository.full_name == $repo and .head_sha == $sha and .status == "completed" and .conclusion == "success"' <<<"$run_json" >/dev/null
           completed_at="$(jq -er '.updated_at' <<<"$run_json")"
           tagged_at="$(jq -er '.tagger.date' <<<"$tag_json")"
@@ -86,8 +86,8 @@ jobs:
           set -euo pipefail
           (cd release && sha256sum --check SHA256SUMS)
           mkdir dist
-          cp release/meshflow_contracts-0.2.2-py3-none-any.whl dist/
-          cp release/meshflow_contracts-0.2.2.tar.gz dist/
+          cp release/meshflow_contracts-0.2.3-py3-none-any.whl dist/
+          cp release/meshflow_contracts-0.2.3.tar.gz dist/
           python release_artifacts.py dist
 
       - name: Publish once with PyPI Trusted Publishing

@@ -199,7 +199,8 @@ def assert_actionlint_structure(job: dict[str, Any]) -> None:
 
 
 def assert_gate_evidence_contract(run: str) -> None:
-    for repeated in ("gh api --fail-with-body", "Accept: application/vnd.github+json", "X-GitHub-Api-Version: 2022-11-28"):
+    assert "--fail-with-body" not in run
+    for repeated in ("gh api -H", "Accept: application/vnd.github+json", "X-GitHub-Api-Version: 2022-11-28"):
         assert run.count(repeated) == 3, "missing release evidence contract"
     required = (
         'release-tag-identity.sh "$tag_ref" "$EVENT_AFTER" "$EXPECTED_SHA"',
@@ -304,6 +305,37 @@ def test_actions_and_security_relevant_inputs_are_exact() -> None:
     }
 
 
+def test_ci_executes_exact_read_only_runner_gh_api_compatibility_check() -> None:
+    job = load_workflow(CI_PATH)["jobs"]["gh-api-compatibility"]
+    assert job == {
+        "name": "gh api compatibility",
+        "runs-on": "ubuntu-latest",
+        "timeout-minutes": 5,
+        "permissions": {"contents": "read"},
+        "steps": [
+            {
+                "name": "Verify runner gh api compatibility",
+                "env": {"GH_TOKEN": "${{ github.token }}"},
+                "run": (
+                    "set -euo pipefail\n"
+                    "gh --version\n"
+                    'response="$RUNNER_TEMP/repository.json"\n'
+                    "gh api -H 'Accept: application/vnd.github+json' "
+                    "-H 'X-GitHub-Api-Version: 2022-11-28' "
+                    '"/repos/${GITHUB_REPOSITORY}" > "$response"\n'
+                    'jq -e --arg repo "$GITHUB_REPOSITORY" '
+                    "'.full_name == $repo' \"$response\" >/dev/null\n"
+                ),
+            }
+        ],
+    }
+    text = str(job).lower()
+    assert not any(
+        authority in text
+        for authority in ("environment", "id-token", "secrets.", "publish", "pypa", "twine")
+    )
+
+
 def test_build_quality_precedes_one_build_and_artifact_verification() -> None:
     build_steps = steps("build")
     quality, build, verify, upload = (
@@ -346,8 +378,8 @@ def test_publish_reverifies_same_run_artifacts_without_rebuilding() -> None:
     assert download < verify < publish
     assert "sha256sum --check SHA256SUMS" in publish_steps[verify]["run"]
     assert "python release_artifacts.py dist" in publish_steps[verify]["run"]
-    assert "meshflow_contracts-0.2.2-py3-none-any.whl" in publish_steps[verify]["run"]
-    assert "meshflow_contracts-0.2.2.tar.gz" in publish_steps[verify]["run"]
+    assert "meshflow_contracts-0.2.3-py3-none-any.whl" in publish_steps[verify]["run"]
+    assert "meshflow_contracts-0.2.3.tar.gz" in publish_steps[verify]["run"]
     assert "uv build" not in WORKFLOW_PATH.read_text()
     assert publish_steps[publish]["with"].keys().isdisjoint(
         {"user", "password", "token", "repository-url"}
@@ -587,27 +619,27 @@ def test_tag_identity_distinguishes_annotated_object_from_peeled_commit(tmp_path
     git("add", "file")
     git("commit", "--quiet", "-m", "release")
     commit_sha = git("rev-parse", "HEAD").stdout.strip()
-    git("tag", "-a", "v0.2.2", "-m", "dry-run-run-id: 123")
-    tag_sha = git("rev-parse", "refs/tags/v0.2.2").stdout.strip()
+    git("tag", "-a", "v0.2.3", "-m", "dry-run-run-id: 123")
+    tag_sha = git("rev-parse", "refs/tags/v0.2.3").stdout.strip()
 
     assert tag_sha != commit_sha
     assert subprocess.run(
-        ["bash", str(TAG_IDENTITY_PATH), "refs/tags/v0.2.2", tag_sha, commit_sha],
+        ["bash", str(TAG_IDENTITY_PATH), "refs/tags/v0.2.3", tag_sha, commit_sha],
         cwd=tmp_path,
         check=False,
     ).returncode == 0
     assert subprocess.run(
-        ["bash", str(TAG_IDENTITY_PATH), "refs/tags/v0.2.2", commit_sha, tag_sha],
+        ["bash", str(TAG_IDENTITY_PATH), "refs/tags/v0.2.3", commit_sha, tag_sha],
         cwd=tmp_path,
         check=False,
     ).returncode != 0
 
-    git("tag", "v0.2.2-lightweight", commit_sha)
+    git("tag", "v0.2.3-lightweight", commit_sha)
     assert subprocess.run(
         [
             "bash",
             str(TAG_IDENTITY_PATH),
-            "refs/tags/v0.2.2-lightweight",
+            "refs/tags/v0.2.3-lightweight",
             commit_sha,
             commit_sha,
         ],
@@ -635,8 +667,8 @@ def assert_tag_identity_rejected_before_identity(tmp_path: Path, *args: str) -> 
     "args",
     [
         (),
-        ("refs/tags/v0.2.2", "a" * 40),
-        ("refs/tags/v0.2.2", "a" * 40, "b" * 40, "extra"),
+        ("refs/tags/v0.2.3", "a" * 40),
+        ("refs/tags/v0.2.3", "a" * 40, "b" * 40, "extra"),
     ],
 )
 def test_tag_identity_rejects_inexact_argument_count(tmp_path: Path, args: tuple[str, ...]) -> None:
@@ -646,12 +678,12 @@ def test_tag_identity_rejects_inexact_argument_count(tmp_path: Path, args: tuple
 @pytest.mark.parametrize(
     "tag_ref",
     [
-        "refs/tags/v0.2.2^{tag}",
-        "refs/tags/v0..2.2",
-        "refs/tags/../v0.2.2",
-        "refs/heads/v0.2.2",
-        "refs/tags/v0.2.2 release",
-        "refs/tags/v0.2.2\nrelease",
+        "refs/tags/v0.2.3^{tag}",
+        "refs/tags/v0..2.3",
+        "refs/tags/../v0.2.3",
+        "refs/heads/v0.2.3",
+        "refs/tags/v0.2.3 release",
+        "refs/tags/v0.2.3\nrelease",
     ],
 )
 def test_tag_identity_rejects_malformed_tag_refs(tmp_path: Path, tag_ref: str) -> None:
@@ -661,7 +693,7 @@ def test_tag_identity_rejects_malformed_tag_refs(tmp_path: Path, tag_ref: str) -
 @pytest.mark.parametrize("argument", [1, 2])
 @pytest.mark.parametrize("sha", ["A" * 40, "a" * 39, "g" * 40])
 def test_tag_identity_rejects_noncanonical_shas(tmp_path: Path, argument: int, sha: str) -> None:
-    args = ["refs/tags/v0.2.2", "a" * 40, "b" * 40]
+    args = ["refs/tags/v0.2.3", "a" * 40, "b" * 40]
     args[argument] = sha
 
     assert_tag_identity_rejected_before_identity(tmp_path, *args)
@@ -706,7 +738,7 @@ def test_runbook_requires_recorded_main_evidence_and_forbids_operator_shortcuts(
         "later explicit irreversible authorization",
         "Never substitute a local operator build",
         "never overwrite, retag, manually upload, or blindly rerun",
-        "`v0.2.0` and `v0.2.1` remain immutable failed, unpublished tags",
+        "`v0.2.0`, `v0.2.1`, and `v0.2.2` remain immutable failed, unpublished tags",
     ):
         assert required in runbook
 
@@ -714,7 +746,7 @@ def test_runbook_requires_recorded_main_evidence_and_forbids_operator_shortcuts(
 @pytest.mark.parametrize(
     "required",
     (
-        "gh api --fail-with-body",
+        "gh api -H",
         '.head_repository.full_name == $repo',
         "completed_at=\"$(jq -er '.updated_at'",
     ),

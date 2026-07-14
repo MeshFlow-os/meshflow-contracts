@@ -4,11 +4,11 @@ This runbook records the recovery boundary for the first public release. It does
 
 ## Failed release history
 
-`v0.2.0` and `v0.2.1` remain immutable failed, unpublished tags. Never move,
-delete, reuse, rerun, retag, publish, or create a GitHub Release for either one.
+`v0.2.0`, `v0.2.1`, and `v0.2.2` remain immutable failed, unpublished tags. Never move,
+delete, reuse, rerun, retag, publish, or create a GitHub Release for any of them.
 The verifier correctly rejected the build because uv added `dist/.gitignore` beside the wheel and sdist; recovery fixes the build invocation rather than weakening the exact artifact allowlist.
 
-The recovery candidate is `0.2.2`. Its release build uses:
+The recovery candidate is `0.2.3`. Its release build uses:
 
 ```bash
 uv build --clear --no-create-gitignore --build-constraints build-constraints.txt --require-hashes
@@ -19,7 +19,7 @@ Do not run that command as an operator release substitute. The real build-to-ver
 ## Recovery Gate
 
 After the complete automation is merged, run a fresh successful `Release dry run`
-from the exact merged `main` SHA. Record its push run ID and verify the run used
+for `v0.2.3` from the exact merged `main` SHA. Record its push run ID and verify the run used
 `.github/workflows/release-dry-run.yml`, has `event=push`, `head_branch=main`,
 the exact candidate `head_sha`, `status=completed`, and `conclusion=success`.
 
@@ -38,8 +38,8 @@ CI actionlint is commit-pinned and time-bounded, with ShellCheck enabled for mul
 
 ## Consumer Adoption
 
-Consumers must not adopt `0.2.2` until the public wheel, sdist, hashes, and
-provenance are verified. Core adopts `0.2.2` before Gateway. Each consumer must
+Consumers must not adopt `0.2.3` until the public wheel, sdist, hashes, and
+provenance are verified. Core adopts `0.2.3` before Gateway. Each consumer must
 pin the exact verified version, regenerate its lockfile, use frozen installs,
 and prove schema equivalence before deleting duplicated contracts or enabling
 runtime behavior.
