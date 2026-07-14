@@ -1,4 +1,11 @@
 # Changelog
+## 0.2.2
+
+- Recover the failed unpublished `v0.2.0` and `v0.2.1` release attempts without
+  reusing or moving either immutable tag.
+- Correctly distinguish the annotated tag object SHA from its peeled release
+  commit throughout local, remote, and dry-run release evidence validation.
+
 ## 0.2.1
 
 - Recover the failed unpublished `v0.2.0` release without changing its immutable
@@ -9,6 +16,8 @@
   isolated non-publishing CI verification.
 - Keep consumer adoption blocked until the public `0.2.1` package is verified;
   Core adopts before Gateway.
+- Record this version as a failed, unpublished, immutable release attempt. It
+  must not be rerun, retagged, reused, published, or represented by a GitHub Release.
 
 ## 0.2.0
 

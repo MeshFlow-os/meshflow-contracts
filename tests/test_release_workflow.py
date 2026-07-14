@@ -1,4 +1,6 @@
 import json
+import os
+import subprocess
 import sys
 import textwrap
 from pathlib import Path
@@ -14,6 +16,7 @@ BUILD_PATH = ROOT / ".github/workflows/release-build.yml"
 DRY_RUN_PATH = ROOT / ".github/workflows/release-dry-run.yml"
 CI_PATH = ROOT / ".github/workflows/ci.yml"
 RELEASING_PATH = ROOT / "RELEASING.md"
+TAG_IDENTITY_PATH = ROOT / ".github/scripts/release-tag-identity.sh"
 
 BUILDER_COMMANDS = (
     ("Sync locked dependencies", "uv sync --locked --all-groups"),
@@ -199,7 +202,7 @@ def assert_gate_evidence_contract(run: str) -> None:
     for repeated in ("gh api --fail-with-body", "Accept: application/vnd.github+json", "X-GitHub-Api-Version: 2022-11-28"):
         assert run.count(repeated) == 3, "missing release evidence contract"
     required = (
-        'test "$EXPECTED_SHA" = "$EVENT_AFTER"',
+        'release-tag-identity.sh "$tag_ref" "$EVENT_AFTER" "$EXPECTED_SHA"',
         'encoded_tag="$(jq -rn',
         "/git/ref/tags/${encoded_tag}",
         "/actions/runs/${dry_run_id}",
@@ -207,7 +210,7 @@ def assert_gate_evidence_contract(run: str) -> None:
         '.ref == $ref and .object.type == "tag"',
         '.tag == $tag and .sha == $tag_sha',
         '.object.type == "commit" and .object.sha == $sha',
-        'jq -e --arg repo "$REPOSITORY" --arg sha "$EXPECTED_SHA"',
+        'jq -e --arg repo "$REPOSITORY" --arg sha "$peeled_commit_sha"',
         '.name == "Release dry run"',
         '.path == ".github/workflows/release-dry-run.yml"',
         '.event == "push"',
@@ -343,6 +346,8 @@ def test_publish_reverifies_same_run_artifacts_without_rebuilding() -> None:
     assert download < verify < publish
     assert "sha256sum --check SHA256SUMS" in publish_steps[verify]["run"]
     assert "python release_artifacts.py dist" in publish_steps[verify]["run"]
+    assert "meshflow_contracts-0.2.2-py3-none-any.whl" in publish_steps[verify]["run"]
+    assert "meshflow_contracts-0.2.2.tar.gz" in publish_steps[verify]["run"]
     assert "uv build" not in WORKFLOW_PATH.read_text()
     assert publish_steps[publish]["with"].keys().isdisjoint(
         {"user", "password", "token", "repository-url"}
@@ -363,8 +368,12 @@ def test_shell_steps_fail_closed_and_remote_tag_gate_is_exact() -> None:
         "REPOSITORY": "${{ github.repository }}",
     }
     for required in (
-        'object.type == "tag"', "/git/tags/", ".tag == $tag", 'object.type == "commit"',
-        'test "$EXPECTED_SHA" = "$EVENT_AFTER"',
+        'object.type == "tag"',
+        "/git/tags/",
+        ".tag == $tag",
+        'object.type == "commit"',
+        '--arg tag_sha "$tag_object_sha"',
+        '--arg sha "$peeled_commit_sha"',
     ):
         assert required in gate["run"]
 
@@ -542,8 +551,7 @@ def test_release_gate_requires_unique_exact_dry_run_evidence_before_build() -> N
     run = gate["run"]
 
     for required in (
-        "git cat-file -t",
-        'git rev-parse "${tag_ref}^{commit}"',
+        'read -r tag_object_sha peeled_commit_sha',
         'test "$TAG_NAME" = "v$version"',
         "test \"$(grep -c '^dry-run-run-id: [0-9][0-9]*$' <<<\"$tag_body\")\" = 1",
         "dry_run_id=\"$(sed -n 's/^dry-run-run-id: \\([0-9][0-9]*\\)$/\\1/p'",
@@ -559,7 +567,104 @@ def test_release_gate_requires_unique_exact_dry_run_evidence_before_build() -> N
         'test "$(date -d "$completed_at" +%s)" -le "$(date -d "$tagged_at" +%s)"',
     ):
         assert required in run
+    helper = TAG_IDENTITY_PATH.read_text()
+    assert 'test "$(git cat-file -t "$tag_ref")" = tag' in helper
+    assert 'test "$tag_object_sha" = "$2"' in helper
+    assert 'test "$peeled_commit_sha" = "$3"' in helper
     assert_gate_evidence_contract(run)
+
+
+def test_tag_identity_distinguishes_annotated_object_from_peeled_commit(tmp_path: Path) -> None:
+    def git(*args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            ["git", *args], cwd=tmp_path, check=check, capture_output=True, text=True
+        )
+
+    git("init", "--quiet")
+    git("config", "user.name", "Release Test")
+    git("config", "user.email", "release@example.invalid")
+    (tmp_path / "file").write_text("release\n")
+    git("add", "file")
+    git("commit", "--quiet", "-m", "release")
+    commit_sha = git("rev-parse", "HEAD").stdout.strip()
+    git("tag", "-a", "v0.2.2", "-m", "dry-run-run-id: 123")
+    tag_sha = git("rev-parse", "refs/tags/v0.2.2").stdout.strip()
+
+    assert tag_sha != commit_sha
+    assert subprocess.run(
+        ["bash", str(TAG_IDENTITY_PATH), "refs/tags/v0.2.2", tag_sha, commit_sha],
+        cwd=tmp_path,
+        check=False,
+    ).returncode == 0
+    assert subprocess.run(
+        ["bash", str(TAG_IDENTITY_PATH), "refs/tags/v0.2.2", commit_sha, tag_sha],
+        cwd=tmp_path,
+        check=False,
+    ).returncode != 0
+
+    git("tag", "v0.2.2-lightweight", commit_sha)
+    assert subprocess.run(
+        [
+            "bash",
+            str(TAG_IDENTITY_PATH),
+            "refs/tags/v0.2.2-lightweight",
+            commit_sha,
+            commit_sha,
+        ],
+        cwd=tmp_path,
+        check=False,
+    ).returncode != 0
+
+
+def assert_tag_identity_rejected_before_identity(tmp_path: Path, *args: str) -> None:
+    result = subprocess.run(
+        ["bash", str(TAG_IDENTITY_PATH), *args],
+        cwd=tmp_path,
+        check=False,
+        capture_output=True,
+        text=True,
+        env={**os.environ, "GIT_TRACE": "1"},
+    )
+
+    assert result.returncode != 0
+    assert "cat-file" not in result.stderr
+    assert "rev-parse" not in result.stderr
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        (),
+        ("refs/tags/v0.2.2", "a" * 40),
+        ("refs/tags/v0.2.2", "a" * 40, "b" * 40, "extra"),
+    ],
+)
+def test_tag_identity_rejects_inexact_argument_count(tmp_path: Path, args: tuple[str, ...]) -> None:
+    assert_tag_identity_rejected_before_identity(tmp_path, *args)
+
+
+@pytest.mark.parametrize(
+    "tag_ref",
+    [
+        "refs/tags/v0.2.2^{tag}",
+        "refs/tags/v0..2.2",
+        "refs/tags/../v0.2.2",
+        "refs/heads/v0.2.2",
+        "refs/tags/v0.2.2 release",
+        "refs/tags/v0.2.2\nrelease",
+    ],
+)
+def test_tag_identity_rejects_malformed_tag_refs(tmp_path: Path, tag_ref: str) -> None:
+    assert_tag_identity_rejected_before_identity(tmp_path, tag_ref, "a" * 40, "b" * 40)
+
+
+@pytest.mark.parametrize("argument", [1, 2])
+@pytest.mark.parametrize("sha", ["A" * 40, "a" * 39, "g" * 40])
+def test_tag_identity_rejects_noncanonical_shas(tmp_path: Path, argument: int, sha: str) -> None:
+    args = ["refs/tags/v0.2.2", "a" * 40, "b" * 40]
+    args[argument] = sha
+
+    assert_tag_identity_rejected_before_identity(tmp_path, *args)
 
 
 def test_release_permissions_artifact_identity_and_actionlint_are_isolated() -> None:
@@ -601,7 +706,7 @@ def test_runbook_requires_recorded_main_evidence_and_forbids_operator_shortcuts(
         "later explicit irreversible authorization",
         "Never substitute a local operator build",
         "never overwrite, retag, manually upload, or blindly rerun",
-        "`v0.2.0` remains an immutable failed, unpublished tag",
+        "`v0.2.0` and `v0.2.1` remain immutable failed, unpublished tags",
     ):
         assert required in runbook
 
