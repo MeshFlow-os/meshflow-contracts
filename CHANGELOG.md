@@ -1,10 +1,19 @@
 # Changelog
+## 0.2.3
+
+- Remove the unsupported `gh api --fail-with-body` option from release evidence
+  checks and exercise the runner's real `gh api` parser in read-only CI.
+- Recover from immutable failed unpublished `v0.2.0`, `v0.2.1`, and `v0.2.2`
+  attempts without moving or reusing their tags.
+
 ## 0.2.2
 
 - Recover the failed unpublished `v0.2.0` and `v0.2.1` release attempts without
   reusing or moving either immutable tag.
 - Correctly distinguish the annotated tag object SHA from its peeled release
   commit throughout local, remote, and dry-run release evidence validation.
+- Record this version as a failed, unpublished, immutable release attempt. It
+  must not be rerun, retagged, reused, published, or represented by a GitHub Release.
 
 ## 0.2.1
 

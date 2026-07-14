@@ -13,7 +13,7 @@ from pathlib import PurePosixPath
 from typing import IO, Never
 
 NAME = "meshflow-contracts"
-VERSION = "0.2.2"
+VERSION = "0.2.3"
 PACKAGE = "meshflow_contracts"
 MODULE_FILES = {f"{PACKAGE}/{name}" for name in ("__init__.py", "auth.py", "errors.py", "manifest.py", "observability.py", "py.typed")}  # fmt: skip
 LICENSE_SHA256 = "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"

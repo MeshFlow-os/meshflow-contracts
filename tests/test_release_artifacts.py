@@ -14,7 +14,7 @@ import release_artifacts
 ROOT = Path(__file__).parents[1]
 REGULAR_MODE = stat.S_IFREG | 0o644
 DIRECTORY_MODE = stat.S_IFDIR | 0o755
-VERSION = "0.2.2"
+VERSION = "0.2.3"
 
 
 def metadata(**changes: str) -> bytes:
