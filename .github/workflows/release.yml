@@ -86,8 +86,8 @@ jobs:
           set -euo pipefail
           (cd release && sha256sum --check SHA256SUMS)
           mkdir dist
-          cp release/meshflow_contracts-0.2.3-py3-none-any.whl dist/
-          cp release/meshflow_contracts-0.2.3.tar.gz dist/
+          cp release/meshflow_contracts-0.3.0-py3-none-any.whl dist/
+          cp release/meshflow_contracts-0.3.0.tar.gz dist/
           python release_artifacts.py dist
 
       - name: Publish once with PyPI Trusted Publishing

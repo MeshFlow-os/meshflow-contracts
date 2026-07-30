@@ -1,4 +1,31 @@
 # Changelog
+
+## 0.3.0
+
+Breaking. Consumers stay pinned to `0.2.3` until this version is published and
+verified; adoption order is Core, then Gateway, then apps.
+
+- Remove `service.base_url` from `AppManifest`. The manifest is now a
+  deployment-independent artifact describing app identity only; the upstream
+  address is supplied separately at registration time and already lives on the
+  registry's own `service_base_url` column.
+- Keep `ServiceDefinition` tolerant of unknown keys so manifest snapshots already
+  persisted by the registry stay readable. Those rows are immutable and hashed at
+  write time, and Core parses them on the read path when resolving external
+  ingress capabilities. Refusing a newly submitted manifest that still carries
+  `base_url` is a registration-time policy check, not a contract-level rule.
+- Validate `health_url`, `manifest_url`, and `openapi_url` as normalized absolute
+  paths, reusing the same rules that guard external ingress upstream paths.
+- Add the optional `store` listing block: `long_description`, `category` (closed
+  `AppCategory` taxonomy), `icon_url`, `screenshots`, and publisher links.
+  Asset URLs must be absolute and https.
+- Add the optional `release_notes` field describing the manifest's own version.
+- Export the manifest models from the package root, so consumers can use
+  `from meshflow_contracts import AppManifest` instead of reaching into
+  `meshflow_contracts.manifest`.
+- Rename `INTERNAL_UPSTREAM_PATH_PATTERN` to `NORMALIZED_ABSOLUTE_PATH_PATTERN`,
+  keeping the previous name as an alias.
+
 ## 0.2.3
 
 - Remove the unsupported `gh api --fail-with-body` option from release evidence
