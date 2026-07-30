@@ -2,27 +2,33 @@ import json
 from typing import Any
 
 import pytest
-from pydantic import BaseModel, ConfigDict, Field, HttpUrl, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from meshflow_contracts.manifest import AppManifest, ExternalIngressDefinition
+from meshflow_contracts.manifest import (
+    AppCategory,
+    AppManifest,
+    ExternalIngressDefinition,
+    ServiceDefinition,
+    StoreListing,
+    StoreScreenshot,
+)
 
 
-class Legacy010Publisher(BaseModel):
+class Legacy020Publisher(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     name: str
 
 
-class Legacy010ServiceDefinition(BaseModel):
+class Legacy020ServiceDefinition(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
-    base_url: HttpUrl | str
     health_url: str
     manifest_url: str
     openapi_url: str
 
 
-class Legacy010NavigationEntry(BaseModel):
+class Legacy020NavigationEntry(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     id: str
@@ -31,26 +37,26 @@ class Legacy010NavigationEntry(BaseModel):
     icon: str | None = None
 
 
-class Legacy010NavigationDefinition(BaseModel):
+class Legacy020NavigationDefinition(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
-    entries: list[Legacy010NavigationEntry]
+    entries: list[Legacy020NavigationEntry]
 
 
-class Legacy010PermissionDefinition(BaseModel):
+class Legacy020PermissionDefinition(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     id: str
     description: str
 
 
-class Legacy010SettingsDefinition(BaseModel):
+class Legacy020SettingsDefinition(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     sections: list[dict[str, Any]] = Field(default_factory=list)
 
 
-class Legacy010AppManifest(BaseModel):
+class Legacy020AppManifest(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     schema_version: str
@@ -58,12 +64,12 @@ class Legacy010AppManifest(BaseModel):
     slug: str
     name: str
     version: str
-    publisher: Legacy010Publisher
-    service: Legacy010ServiceDefinition
-    navigation: Legacy010NavigationDefinition
+    publisher: Legacy020Publisher
+    service: Legacy020ServiceDefinition
+    navigation: Legacy020NavigationDefinition
     description: str | None = None
-    permissions: list[Legacy010PermissionDefinition] = Field(default_factory=list)
-    settings: Legacy010SettingsDefinition = Field(default_factory=Legacy010SettingsDefinition)
+    permissions: list[Legacy020PermissionDefinition] = Field(default_factory=list)
+    settings: Legacy020SettingsDefinition = Field(default_factory=Legacy020SettingsDefinition)
     triggers: list[dict[str, Any]] = Field(default_factory=list)
     actions: list[dict[str, Any]] = Field(default_factory=list)
     jobs: list[dict[str, Any]] = Field(default_factory=list)
@@ -79,7 +85,6 @@ def manifest_data() -> dict[str, object]:
         "version": "0.1.0",
         "publisher": {"name": "MeshFlow"},
         "service": {
-            "base_url": "http://fitness-api:8000",
             "health_url": "/health",
             "manifest_url": "/manifest",
             "openapi_url": "/openapi.json",
@@ -88,7 +93,7 @@ def manifest_data() -> dict[str, object]:
     }
 
 
-LEGACY_MANIFEST_DUMP: dict[str, object] = {
+BASELINE_MANIFEST_DUMP: dict[str, object] = {
     **manifest_data(),
     "description": None,
     "permissions": [],
@@ -98,6 +103,23 @@ LEGACY_MANIFEST_DUMP: dict[str, object] = {
     "jobs": [],
     "ai_tools": [],
 }
+
+
+def store_listing(**overrides: object) -> dict[str, object]:
+    listing: dict[str, object] = {
+        "long_description": "Track workouts, routines and progress over time.",
+        "category": "health-and-fitness",
+        "icon_url": "https://cdn.meshflow.example/fitness/icon.png",
+        "screenshots": [
+            {"url": "https://cdn.meshflow.example/fitness/1.png", "caption": "Today"},
+            {"url": "https://cdn.meshflow.example/fitness/2.png"},
+        ],
+        "website_url": "https://meshflow.example/fitness",
+        "support_url": "https://meshflow.example/fitness/support",
+        "privacy_policy_url": "https://meshflow.example/fitness/privacy",
+    }
+    listing.update(overrides)
+    return listing
 
 
 def external_ingress_policy(**overrides: object) -> dict[str, object]:
@@ -138,26 +160,38 @@ def test_manifest_without_external_ingress_serializes_as_before() -> None:
     assert "external_ingress" not in json.loads(manifest.model_dump_json())
 
 
-def test_legacy_010_manifest_fixture_preserves_ordinary_dump_and_json() -> None:
-    legacy_manifest = AppManifest.model_validate(manifest_data())
+def test_minimal_manifest_preserves_ordinary_dump_and_json() -> None:
+    minimal_manifest = AppManifest.model_validate(manifest_data())
 
-    assert legacy_manifest.model_dump() == LEGACY_MANIFEST_DUMP
-    assert json.loads(legacy_manifest.model_dump_json()) == LEGACY_MANIFEST_DUMP
-    assert legacy_manifest.external_ingress == ()
+    assert minimal_manifest.model_dump() == BASELINE_MANIFEST_DUMP
+    assert json.loads(minimal_manifest.model_dump_json()) == BASELINE_MANIFEST_DUMP
+    assert minimal_manifest.external_ingress == ()
+    assert minimal_manifest.store is None
+    assert minimal_manifest.release_notes is None
 
 
-def test_external_ingress_is_additive_for_consumers_that_ignore_unknown_fields() -> None:
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("external_ingress", [external_ingress_policy()]),
+        ("store", store_listing()),
+        ("release_notes", "Adds recurring transactions."),
+    ],
+)
+def test_optional_blocks_are_additive_for_consumers_that_ignore_unknown_fields(
+    field: str, value: object
+) -> None:
     incoming_manifest = manifest_data()
-    incoming_manifest["external_ingress"] = [external_ingress_policy()]
+    incoming_manifest[field] = value
 
     serialized_manifest = AppManifest.model_validate(incoming_manifest).model_dump()
-    legacy_consumer_manifest = Legacy010AppManifest.model_validate(serialized_manifest)
+    legacy_consumer_manifest = Legacy020AppManifest.model_validate(serialized_manifest)
     consumer_view = legacy_consumer_manifest.model_dump()
 
-    assert Legacy010AppManifest.model_config["extra"] == "ignore"
-    assert "external_ingress" in serialized_manifest
-    assert not hasattr(legacy_consumer_manifest, "external_ingress")
-    assert consumer_view == LEGACY_MANIFEST_DUMP
+    assert Legacy020AppManifest.model_config["extra"] == "ignore"
+    assert field in serialized_manifest
+    assert not hasattr(legacy_consumer_manifest, field)
+    assert consumer_view == BASELINE_MANIFEST_DUMP
 
 
 @pytest.mark.parametrize(
@@ -340,3 +374,242 @@ def test_external_ingress_rejects_invalid_policy(field: str, value: object) -> N
 
     with pytest.raises(ValidationError):
         ExternalIngressDefinition.model_validate(policy)
+
+
+# --- service definition: deployment binding removed in 0.3.0 -----------------
+
+
+def test_service_definition_drops_retired_base_url_without_rejecting_it() -> None:
+    data = manifest_data()
+    service = data["service"]
+    assert isinstance(service, dict)
+    service["base_url"] = "http://fitness-api:8000"
+
+    manifest = AppManifest.model_validate(data)
+
+    assert not hasattr(manifest.service, "base_url")
+    assert "base_url" not in manifest.model_dump()["service"]
+
+
+def test_persisted_0_2_x_snapshots_remain_readable() -> None:
+    """Registry snapshots are immutable and hashed at write time.
+
+    `AppManifest.model_validate` runs against them on the read path (Core resolves
+    external ingress capabilities from the stored snapshot), so a manifest written
+    by 0.2.x must keep parsing after the 0.3.0 removal or already-registered apps
+    fail at request time rather than at deploy time.
+    """
+    persisted_snapshot = {
+        **manifest_data(),
+        "service": {
+            "base_url": "http://healthapp-api:8000",
+            "health_url": "/health",
+            "manifest_url": "/manifest.json",
+            "openapi_url": "/openapi.json",
+        },
+        "external_ingress": [external_ingress_policy()],
+    }
+
+    manifest = AppManifest.model_validate(persisted_snapshot)
+
+    assert manifest.external_ingress[0].capability_id == "health-import"
+    assert manifest.service.health_url == "/health"
+
+
+@pytest.mark.parametrize(
+    "service_path", ["/health", "/manifest", "/openapi.json", "/internal/v1/health-check"]
+)
+def test_service_definition_accepts_canonical_relative_paths(service_path: str) -> None:
+    service = ServiceDefinition.model_validate(
+        {"health_url": service_path, "manifest_url": "/manifest", "openapi_url": "/openapi.json"}
+    )
+
+    assert service.health_url == service_path
+
+
+@pytest.mark.parametrize(
+    "service_path",
+    [
+        "https://attacker.example/health",
+        "//attacker.example/health",
+        "health",
+        "/health/",
+        "/health//check",
+        "/health/../admin",
+        "/health?probe=1",
+        "/health#fragment",
+        "/health\x00",
+        "/",
+        "",
+    ],
+)
+def test_service_definition_rejects_non_relative_or_unnormalized_paths(service_path: str) -> None:
+    with pytest.raises(ValidationError):
+        ServiceDefinition.model_validate(
+            {
+                "health_url": service_path,
+                "manifest_url": "/manifest",
+                "openapi_url": "/openapi.json",
+            }
+        )
+
+
+# --- store listing -----------------------------------------------------------
+
+
+def test_manifest_accepts_store_listing() -> None:
+    data = manifest_data()
+    data["store"] = store_listing()
+
+    manifest = AppManifest.model_validate(data)
+
+    assert manifest.store is not None
+    assert manifest.store.category is AppCategory.HEALTH_AND_FITNESS
+    assert len(manifest.store.screenshots) == 2
+    assert manifest.store.screenshots[0].caption == "Today"
+    assert manifest.store.screenshots[1].caption is None
+
+
+def test_store_listing_serializes_urls_as_plain_strings() -> None:
+    data = manifest_data()
+    data["store"] = store_listing()
+
+    dump = AppManifest.model_validate(data).model_dump()
+
+    assert dump["store"]["icon_url"] == "https://cdn.meshflow.example/fitness/icon.png"
+    assert dump["store"]["category"] == "health-and-fitness"
+    assert dump["store"]["screenshots"][0]["url"] == "https://cdn.meshflow.example/fitness/1.png"
+    assert dump == json.loads(AppManifest.model_validate(data).model_dump_json())
+
+
+@pytest.mark.parametrize(
+    "asset_url",
+    [
+        "http://cdn.meshflow.example/fitness/icon.png",
+        "ftp://cdn.meshflow.example/fitness/icon.png",
+        "file:///etc/passwd",
+        "javascript:alert(1)",
+        "data:image/png;base64,AAAA",
+        "/fitness/icon.png",
+        "cdn.meshflow.example/icon.png",
+    ],
+)
+def test_store_listing_rejects_non_https_asset_urls(asset_url: str) -> None:
+    with pytest.raises(ValidationError):
+        StoreListing.model_validate(store_listing(icon_url=asset_url))
+
+    with pytest.raises(ValidationError):
+        StoreListing.model_validate(store_listing(screenshots=[{"url": asset_url}]))
+
+
+def test_store_listing_rejects_duplicate_screenshot_urls() -> None:
+    duplicate = {"url": "https://cdn.meshflow.example/fitness/1.png"}
+
+    with pytest.raises(ValidationError):
+        StoreListing.model_validate(store_listing(screenshots=[duplicate, duplicate]))
+
+
+def test_store_listing_rejects_too_many_screenshots() -> None:
+    screenshots = [
+        {"url": f"https://cdn.meshflow.example/fitness/{index}.png"} for index in range(11)
+    ]
+
+    with pytest.raises(ValidationError):
+        StoreListing.model_validate(store_listing(screenshots=screenshots))
+
+
+@pytest.mark.parametrize(
+    "listing_overrides",
+    [
+        {"category": "Health And Fitness"},
+        {"category": "not-a-category"},
+        {"category": ""},
+        {"long_description": ""},
+        {"long_description": "x" * 4001},
+        {"screenshots": [{"url": "https://cdn.meshflow.example/1.png", "caption": "x" * 141}]},
+    ],
+)
+def test_store_listing_rejects_invalid_values(listing_overrides: dict[str, object]) -> None:
+    with pytest.raises(ValidationError):
+        StoreListing.model_validate(store_listing(**listing_overrides))
+
+
+@pytest.mark.parametrize("missing_field", ["long_description", "category", "icon_url"])
+def test_store_listing_requires_core_presentation_fields(missing_field: str) -> None:
+    listing = store_listing()
+    del listing[missing_field]
+
+    with pytest.raises(ValidationError):
+        StoreListing.model_validate(listing)
+
+
+def test_store_listing_optional_links_default_to_none() -> None:
+    listing = StoreListing.model_validate(
+        {
+            "long_description": "Minimal listing.",
+            "category": "utilities",
+            "icon_url": "https://cdn.meshflow.example/icon.png",
+        }
+    )
+
+    assert listing.screenshots == ()
+    assert listing.website_url is None
+    assert listing.support_url is None
+    assert listing.privacy_policy_url is None
+
+
+def test_store_listing_is_immutable() -> None:
+    listing = StoreListing.model_validate(store_listing())
+
+    with pytest.raises(ValidationError):
+        setattr(listing, "category", AppCategory.OTHER)
+
+
+def test_store_screenshot_is_immutable() -> None:
+    screenshot = StoreScreenshot.model_validate({"url": "https://cdn.meshflow.example/1.png"})
+
+    with pytest.raises(ValidationError):
+        setattr(screenshot, "caption", "changed")
+
+
+def test_validated_screenshots_collection_cannot_be_mutated() -> None:
+    listing = StoreListing.model_validate(store_listing())
+
+    assert not hasattr(listing.screenshots, "append")
+    mutable_screenshots: Any = listing.screenshots
+    with pytest.raises(TypeError):
+        mutable_screenshots[0] = None
+
+
+def test_app_category_values_are_stable_slugs() -> None:
+    assert {category.value for category in AppCategory} == {
+        "developer-tools",
+        "education",
+        "finance",
+        "health-and-fitness",
+        "lifestyle",
+        "other",
+        "productivity",
+        "utilities",
+    }
+
+
+# --- release notes -----------------------------------------------------------
+
+
+def test_manifest_accepts_release_notes() -> None:
+    data = manifest_data()
+    data["release_notes"] = "Adds recurring transactions."
+
+    manifest = AppManifest.model_validate(data)
+
+    assert manifest.release_notes == "Adds recurring transactions."
+
+
+@pytest.mark.parametrize("release_notes", ["", "x" * 2001])
+def test_manifest_rejects_invalid_release_notes(release_notes: str) -> None:
+    data = manifest_data()
+    data["release_notes"] = release_notes
+
+    with pytest.raises(ValidationError):
+        AppManifest.model_validate(data)

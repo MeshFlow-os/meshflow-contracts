@@ -6,12 +6,14 @@ Rule of thumb: if a model is only used by one app, it does not belong here.
 
 ## Installation
 
-This package is preparing for public PyPI publication. After the release is
-published, install the supported `0.2` line with `pip install "meshflow-contracts~=0.2.3"`.
-Until then, consumers must not assume the distribution is available on PyPI.
+`0.2.3` is published on PyPI and is the currently supported line:
+`pip install "meshflow-contracts~=0.2.3"`.
+
+`0.3.0` is prepared but not yet published. Consumers must not assume it is
+available, and must not adopt it before its public wheel, sdist, hashes, and
+provenance are verified.
 
 Maintainers: use the package-specific [release and adoption runbook](RELEASING.md).
-It describes release gates without implying that `0.2.3` is already published.
 
 ## External ingress manifests
 
@@ -51,13 +53,25 @@ issuer remain runtime responsibilities alongside signing, minting, JWKS
 validation, replay handling, routing, lifecycle status, error taxonomy, and grant
 persistence.
 
-## 0.2.3 recovery rollout notes
+## 0.3.0 rollout notes
 
-The failed `v0.2.0`, `v0.2.1`, and `v0.2.2` tags are immutable unpublished history. They
-must never be moved, reused, published, or turned into GitHub Releases. `0.2.3`
-is the recovery candidate, and consumers must wait for its public package verification. Core
-adopts the verified package before Gateway; the schema upgrade alone does not
-enable runtime capabilities.
+`0.3.0` removes `service.base_url` from `AppManifest`. The manifest now describes
+app identity only; the upstream address is a deployment binding supplied
+separately at registration time. Consumers must migrate their own manifest
+producers before adopting.
+
+`ServiceDefinition` stays tolerant of unknown keys on purpose. Registry manifest
+snapshots are immutable and hashed at write time, and Core parses them on the
+read path, so a snapshot written by `0.2.x` has to keep parsing. Refusing a newly
+submitted manifest that still carries `base_url` is a registration-time policy
+check in Core, not a contract-level rule.
+
+Core adopts the verified package before Gateway; the schema upgrade alone does
+not enable runtime capabilities.
+
+The failed `v0.2.0`, `v0.2.1`, and `v0.2.2` tags are immutable unpublished
+history. They must never be moved, reused, published, or turned into GitHub
+Releases.
 
 - Apps that omit `external_ingress` preserve `0.1.0` parse/serialize behavior;
   omission grants no public ingress.

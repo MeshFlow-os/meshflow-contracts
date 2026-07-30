@@ -29,8 +29,8 @@ def test_public_package_metadata_is_release_ready() -> None:
     }
 
 
-def test_recovery_version_authorities_are_consistently_0_2_3() -> None:
-    expected_version = "0.2.3"
+def test_version_authorities_are_consistent() -> None:
+    expected_version = "0.3.0"
     lock = tomllib.loads((PROJECT_ROOT / "uv.lock").read_text())
     locked_versions = [
         package["version"]
@@ -52,10 +52,17 @@ def test_recovery_version_authorities_are_consistently_0_2_3() -> None:
     assert 'output.write(f"sdist={sdist}\\n")' in workflow
     assert 'EXPECTED_VERSION="$VERSION"' in workflow
     assert 'meshflow_contracts.__version__ == os.environ["EXPECTED_VERSION"]' in workflow
+    # The published 0.2.x line stays documented as installable: 0.3.0 is prepared
+    # but unpublished, so pointing users at it would be a lie until it ships.
     assert 'pip install "meshflow-contracts~=0.2.3"' in readme
-    assert "## 0.2.3" in changelog
+    assert f"## {expected_version}" in changelog
     assert "`v0.2.0`, `v0.2.1`, and `v0.2.2` remain immutable failed, unpublished tags" in releasing
-    assert "Core adopts `0.2.3` before Gateway" in releasing
+    assert f"Core adopts `{expected_version}` before Gateway" in releasing
+    # The publish job copies artifacts by exact filename, so a version bump that
+    # misses the workflow would only fail at publish time, after the tag exists.
+    release_workflow = (PROJECT_ROOT / ".github/workflows/release.yml").read_text()
+    assert f"meshflow_contracts-{expected_version}-py3-none-any.whl" in release_workflow
+    assert f"meshflow_contracts-{expected_version}.tar.gz" in release_workflow
 
 
 def test_uv_build_uses_supported_backend_and_flat_layout() -> None:

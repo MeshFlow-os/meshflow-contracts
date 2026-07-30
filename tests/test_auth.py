@@ -264,6 +264,25 @@ def test_legacy_internal_jwt_claim_fixtures_preserve_dump_and_json() -> None:
     assert json.loads(lifecycle_claims.model_dump_json()) == LIFECYCLE_DUMP
 
 
+# Widening this list is a deliberate public API decision, not a side effect of
+# adding a model. Anything listed here is supported for direct root import.
+INTENTIONAL_PACKAGE_EXPORTS = [
+    "AppCategory",
+    "AppManifest",
+    "ExternalIngressDefinition",
+    "ExternalIngressRatePolicy",
+    "IntegrationRequestClaims",
+    "NavigationDefinition",
+    "NavigationEntry",
+    "PermissionDefinition",
+    "Publisher",
+    "ServiceDefinition",
+    "SettingsDefinition",
+    "StoreListing",
+    "StoreScreenshot",
+]
+
+
 def test_public_import_compatibility_for_documented_modules_and_symbols() -> None:
     manifest_module = import_module("meshflow_contracts.manifest")
     auth_module = import_module("meshflow_contracts.auth")
@@ -275,8 +294,11 @@ def test_public_import_compatibility_for_documented_modules_and_symbols() -> Non
     assert auth_module.AuthContext.__name__ == "AuthContext"
     assert auth_module.InternalJWTClaims.__name__ == "InternalJWTClaims"
     assert auth_module.IntegrationRequestClaims is IntegrationRequestClaims
-    assert meshflow_contracts.__all__ == ["IntegrationRequestClaims"]
+    assert meshflow_contracts.__all__ == INTENTIONAL_PACKAGE_EXPORTS
 
 
 def test_public_package_exports_are_intentional() -> None:
-    assert meshflow_contracts.__all__ == ["IntegrationRequestClaims"]
+    assert meshflow_contracts.__all__ == INTENTIONAL_PACKAGE_EXPORTS
+    assert sorted(INTENTIONAL_PACKAGE_EXPORTS) == INTENTIONAL_PACKAGE_EXPORTS
+    for symbol in INTENTIONAL_PACKAGE_EXPORTS:
+        assert getattr(meshflow_contracts, symbol).__name__ == symbol
