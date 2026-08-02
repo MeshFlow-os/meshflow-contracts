@@ -9,7 +9,9 @@ Rule of thumb: if a model is only used by one app, it does not belong here.
 `0.2.3` is published on PyPI and is the currently supported line:
 `pip install "meshflow-contracts~=0.2.3"`.
 
-`0.3.0` is prepared but not yet published. Consumers must not assume it is
+`0.3.0` is published on PyPI.
+
+`0.4.0` is prepared but not yet published. Consumers must not assume it is
 available, and must not adopt it before its public wheel, sdist, hashes, and
 provenance are verified.
 
@@ -53,10 +55,14 @@ issuer remain runtime responsibilities alongside signing, minting, JWKS
 validation, replay handling, routing, lifecycle status, error taxonomy, and grant
 persistence.
 
-## 0.3.0 rollout notes
+## 0.4.0 rollout notes
 
-`0.3.0` removes `service.base_url` from `AppManifest`. The manifest now describes
-app identity only; the upstream address is a deployment binding supplied
+`0.4.0` replaces the store listing's absolute asset URLs with paths relative to
+a media root the registry holds. A publisher can move their asset hosting by
+updating one registry field, with no manifest change and no republished version.
+
+`0.3.0` removed `service.base_url` from `AppManifest` for the same reason: the
+manifest describes app identity only, and deployment bindings are supplied
 separately at registration time. Consumers must migrate their own manifest
 producers before adopting.
 

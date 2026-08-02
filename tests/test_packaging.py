@@ -30,7 +30,7 @@ def test_public_package_metadata_is_release_ready() -> None:
 
 
 def test_version_authorities_are_consistent() -> None:
-    expected_version = "0.3.0"
+    expected_version = "0.4.0"
     lock = tomllib.loads((PROJECT_ROOT / "uv.lock").read_text())
     locked_versions = [
         package["version"]

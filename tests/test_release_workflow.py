@@ -378,8 +378,8 @@ def test_publish_reverifies_same_run_artifacts_without_rebuilding() -> None:
     assert download < verify < publish
     assert "sha256sum --check SHA256SUMS" in publish_steps[verify]["run"]
     assert "python release_artifacts.py dist" in publish_steps[verify]["run"]
-    assert "meshflow_contracts-0.3.0-py3-none-any.whl" in publish_steps[verify]["run"]
-    assert "meshflow_contracts-0.3.0.tar.gz" in publish_steps[verify]["run"]
+    assert "meshflow_contracts-0.4.0-py3-none-any.whl" in publish_steps[verify]["run"]
+    assert "meshflow_contracts-0.4.0.tar.gz" in publish_steps[verify]["run"]
     assert "uv build" not in WORKFLOW_PATH.read_text()
     assert publish_steps[publish]["with"].keys().isdisjoint(
         {"user", "password", "token", "repository-url"}

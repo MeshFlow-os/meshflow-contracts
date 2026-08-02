@@ -109,10 +109,10 @@ def store_listing(**overrides: object) -> dict[str, object]:
     listing: dict[str, object] = {
         "long_description": "Track workouts, routines and progress over time.",
         "category": "health-and-fitness",
-        "icon_url": "https://cdn.meshflow.example/fitness/icon.png",
+        "icon_path": "fitness/0.1.0/icon.png",
         "screenshots": [
-            {"url": "https://cdn.meshflow.example/fitness/1.png", "caption": "Today"},
-            {"url": "https://cdn.meshflow.example/fitness/2.png"},
+            {"path": "fitness/0.1.0/1.png", "caption": "Today"},
+            {"path": "fitness/0.1.0/2.png"},
         ],
         "website_url": "https://meshflow.example/fitness",
         "support_url": "https://meshflow.example/fitness/support",
@@ -457,6 +457,9 @@ def test_service_definition_rejects_non_relative_or_unnormalized_paths(service_p
 # --- store listing -----------------------------------------------------------
 
 
+# --- store listing -----------------------------------------------------------
+
+
 def test_manifest_accepts_store_listing() -> None:
     data = manifest_data()
     data["store"] = store_listing()
@@ -465,54 +468,115 @@ def test_manifest_accepts_store_listing() -> None:
 
     assert manifest.store is not None
     assert manifest.store.category is AppCategory.HEALTH_AND_FITNESS
+    assert manifest.store.icon_path == "fitness/0.1.0/icon.png"
     assert len(manifest.store.screenshots) == 2
     assert manifest.store.screenshots[0].caption == "Today"
     assert manifest.store.screenshots[1].caption is None
 
 
-def test_store_listing_serializes_urls_as_plain_strings() -> None:
+def test_asset_paths_are_relative_so_the_host_is_not_baked_into_the_manifest() -> None:
+    """Where the assets are hosted is a deployment binding, like the upstream
+    address was before 0.3.0 removed it.
+
+    Baking a hostname in means a publisher cannot move their media without
+    republishing every version, and every already-registered snapshot keeps
+    pointing at the old host — snapshots are immutable, so those links die.
+    The manifest says WHICH asset; the registry says WHERE it is served from.
+    """
+    listing = StoreListing.model_validate(store_listing())
+
+    assert not str(listing.icon_path).startswith("http")
+    assert not str(listing.icon_path).startswith("/")
+
+
+@pytest.mark.parametrize(
+    "asset_path",
+    [
+        "icon.png",
+        "fitness/0.1.0/icon.png",
+        "a/b/c/shot-1.png",
+        "fitness/0.1.0/screen_1.png",
+    ],
+)
+def test_store_listing_accepts_relative_asset_paths(asset_path: str) -> None:
+    listing = StoreListing.model_validate(store_listing(icon_path=asset_path))
+
+    assert listing.icon_path == asset_path
+
+
+@pytest.mark.parametrize(
+    "asset_path",
+    [
+        "https://cdn.example/icon.png",
+        "http://cdn.example/icon.png",
+        "//cdn.example/icon.png",
+        "/fitness/icon.png",
+        "../../etc/passwd",
+        "fitness/../../etc/passwd",
+        "fitness//icon.png",
+        "fitness/./icon.png",
+        "fitness/%2e%2e/icon.png",
+        "fitness\\icon.png",
+        "fitness/icon.png?v=2",
+        "fitness/icon.png#frag",
+        "fitness/icon.png\n",
+        "fitness/icon.png\x00",
+        "fitness/",
+        "",
+        "   ",
+    ],
+)
+def test_store_listing_rejects_paths_that_could_escape_the_media_root(
+    asset_path: str,
+) -> None:
+    """These are joined onto a base URL the manifest does not control.
+
+    A value carrying a scheme, an authority, or traversal would resolve
+    somewhere other than the publisher's media root — in the worst case an
+    attacker-controlled host serving content under the platform's own store UI.
+    """
+    with pytest.raises(ValidationError):
+        StoreListing.model_validate(store_listing(icon_path=asset_path))
+
+    with pytest.raises(ValidationError):
+        StoreListing.model_validate(store_listing(screenshots=[{"path": asset_path}]))
+
+
+def test_publisher_links_stay_absolute_because_they_are_not_platform_assets() -> None:
+    """A publisher's website is not served from the media root and does not
+    move when their asset hosting does, so it stays a full URL."""
+    listing = StoreListing.model_validate(store_listing())
+
+    assert str(listing.website_url) == "https://meshflow.example/fitness"
+
+
+@pytest.mark.parametrize("link_url", ["http://meshflow.example", "ftp://x.example", "/relative"])
+def test_publisher_links_must_still_be_https(link_url: str) -> None:
+    with pytest.raises(ValidationError):
+        StoreListing.model_validate(store_listing(website_url=link_url))
+
+
+def test_store_listing_serializes_paths_as_plain_strings() -> None:
     data = manifest_data()
     data["store"] = store_listing()
 
     dump = AppManifest.model_validate(data).model_dump()
 
-    assert dump["store"]["icon_url"] == "https://cdn.meshflow.example/fitness/icon.png"
+    assert dump["store"]["icon_path"] == "fitness/0.1.0/icon.png"
     assert dump["store"]["category"] == "health-and-fitness"
-    assert dump["store"]["screenshots"][0]["url"] == "https://cdn.meshflow.example/fitness/1.png"
+    assert dump["store"]["screenshots"][0]["path"] == "fitness/0.1.0/1.png"
     assert dump == json.loads(AppManifest.model_validate(data).model_dump_json())
 
 
-@pytest.mark.parametrize(
-    "asset_url",
-    [
-        "http://cdn.meshflow.example/fitness/icon.png",
-        "ftp://cdn.meshflow.example/fitness/icon.png",
-        "file:///etc/passwd",
-        "javascript:alert(1)",
-        "data:image/png;base64,AAAA",
-        "/fitness/icon.png",
-        "cdn.meshflow.example/icon.png",
-    ],
-)
-def test_store_listing_rejects_non_https_asset_urls(asset_url: str) -> None:
-    with pytest.raises(ValidationError):
-        StoreListing.model_validate(store_listing(icon_url=asset_url))
-
-    with pytest.raises(ValidationError):
-        StoreListing.model_validate(store_listing(screenshots=[{"url": asset_url}]))
-
-
-def test_store_listing_rejects_duplicate_screenshot_urls() -> None:
-    duplicate = {"url": "https://cdn.meshflow.example/fitness/1.png"}
+def test_store_listing_rejects_duplicate_screenshot_paths() -> None:
+    duplicate = {"path": "fitness/0.1.0/1.png"}
 
     with pytest.raises(ValidationError):
         StoreListing.model_validate(store_listing(screenshots=[duplicate, duplicate]))
 
 
 def test_store_listing_rejects_too_many_screenshots() -> None:
-    screenshots = [
-        {"url": f"https://cdn.meshflow.example/fitness/{index}.png"} for index in range(11)
-    ]
+    screenshots = [{"path": f"fitness/0.1.0/{index}.png"} for index in range(11)]
 
     with pytest.raises(ValidationError):
         StoreListing.model_validate(store_listing(screenshots=screenshots))
@@ -526,7 +590,7 @@ def test_store_listing_rejects_too_many_screenshots() -> None:
         {"category": ""},
         {"long_description": ""},
         {"long_description": "x" * 4001},
-        {"screenshots": [{"url": "https://cdn.meshflow.example/1.png", "caption": "x" * 141}]},
+        {"screenshots": [{"path": "fitness/1.png", "caption": "x" * 141}]},
     ],
 )
 def test_store_listing_rejects_invalid_values(listing_overrides: dict[str, object]) -> None:
@@ -534,7 +598,7 @@ def test_store_listing_rejects_invalid_values(listing_overrides: dict[str, objec
         StoreListing.model_validate(store_listing(**listing_overrides))
 
 
-@pytest.mark.parametrize("missing_field", ["long_description", "category", "icon_url"])
+@pytest.mark.parametrize("missing_field", ["long_description", "category", "icon_path"])
 def test_store_listing_requires_core_presentation_fields(missing_field: str) -> None:
     listing = store_listing()
     del listing[missing_field]
@@ -548,7 +612,7 @@ def test_store_listing_optional_links_default_to_none() -> None:
         {
             "long_description": "Minimal listing.",
             "category": "utilities",
-            "icon_url": "https://cdn.meshflow.example/icon.png",
+            "icon_path": "utilities/1.0.0/icon.png",
         }
     )
 
@@ -566,7 +630,7 @@ def test_store_listing_is_immutable() -> None:
 
 
 def test_store_screenshot_is_immutable() -> None:
-    screenshot = StoreScreenshot.model_validate({"url": "https://cdn.meshflow.example/1.png"})
+    screenshot = StoreScreenshot.model_validate({"path": "fitness/1.png"})
 
     with pytest.raises(ValidationError):
         setattr(screenshot, "caption", "changed")

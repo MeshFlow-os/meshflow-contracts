@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.4.0
+
+Breaking. Consumers stay pinned to `0.3.0` until this version is published and
+verified; adoption order is Core, then Gateway, then apps.
+
+- Replace `StoreListing.icon_url` with `icon_path` and `StoreScreenshot.url`
+  with `path`. Asset locations are now relative to a media root the registry
+  holds, not absolute URLs naming a host.
+
+  A hostname in the manifest is a deployment binding — the same mistake
+  `service.base_url` made before 0.3.0 removed it. It meant a publisher could
+  not move their asset hosting without republishing every version, and every
+  already-registered snapshot, immutable by design, kept pointing at the old
+  host until its links died. The manifest now says *which* asset; the registry
+  says *where* it is served from, and can be repointed at any time without
+  touching a single manifest.
+
+- Reject asset paths that could resolve outside the media root: absolute paths,
+  protocol-relative values, traversal, percent-encoding, backslashes, query
+  strings and fragments. These are joined onto a base URL the manifest does not
+  control, so an unchecked value could serve attacker-controlled content inside
+  the platform's own store UI.
+
+- Publisher links (`website_url`, `support_url`, `privacy_policy_url`) stay
+  absolute https. A marketing site is not served from the media root and does
+  not move when asset hosting does.
+
 ## 0.3.0
 
 Breaking. Consumers stay pinned to `0.2.3` until this version is published and
