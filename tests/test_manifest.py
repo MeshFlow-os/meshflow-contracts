@@ -166,7 +166,7 @@ def test_minimal_manifest_preserves_ordinary_dump_and_json() -> None:
     assert minimal_manifest.model_dump() == BASELINE_MANIFEST_DUMP
     assert json.loads(minimal_manifest.model_dump_json()) == BASELINE_MANIFEST_DUMP
     assert minimal_manifest.external_ingress == ()
-    assert minimal_manifest.store is None
+    assert minimal_manifest.store_listing_path is None
     assert minimal_manifest.release_notes is None
 
 
@@ -174,7 +174,7 @@ def test_minimal_manifest_preserves_ordinary_dump_and_json() -> None:
     ("field", "value"),
     [
         ("external_ingress", [external_ingress_policy()]),
-        ("store", store_listing()),
+        ("store_listing_path", "fitness/store.json"),
         ("release_notes", "Adds recurring transactions."),
     ],
 )
@@ -460,18 +460,53 @@ def test_service_definition_rejects_non_relative_or_unnormalized_paths(service_p
 # --- store listing -----------------------------------------------------------
 
 
-def test_manifest_accepts_store_listing() -> None:
+def test_manifest_points_at_its_listing_rather_than_embedding_it() -> None:
+    """The manifest is snapshotted and hashed at registration, and never edited.
+
+    That immutability exists for the permission grant: an app must not be able to
+    widen what it asked for after a user consented. Presentation has no such
+    requirement — a screenshot is not a promise — so embedding it would force a
+    republished version for a change of decoration. The manifest freezes WHERE
+    the listing lives; the document it names stays editable.
+    """
     data = manifest_data()
-    data["store"] = store_listing()
+    data["store_listing_path"] = "fitness/store.json"
 
     manifest = AppManifest.model_validate(data)
 
-    assert manifest.store is not None
-    assert manifest.store.category is AppCategory.HEALTH_AND_FITNESS
-    assert manifest.store.icon_path == "fitness/0.1.0/icon.png"
-    assert len(manifest.store.screenshots) == 2
-    assert manifest.store.screenshots[0].caption == "Today"
-    assert manifest.store.screenshots[1].caption is None
+    assert manifest.store_listing_path == "fitness/store.json"
+    assert not hasattr(manifest, "store")
+
+
+@pytest.mark.parametrize(
+    "listing_path",
+    [
+        "https://cdn.example/store.json",
+        "//cdn.example/store.json",
+        "/fitness/store.json",
+        "../../etc/passwd",
+        "fitness/../../evil.json",
+        "fitness/store.json?v=2",
+        "",
+    ],
+)
+def test_store_listing_path_cannot_escape_the_media_root(listing_path: str) -> None:
+    data = manifest_data()
+    data["store_listing_path"] = listing_path
+
+    with pytest.raises(ValidationError):
+        AppManifest.model_validate(data)
+
+
+def test_store_listing_is_the_schema_of_the_external_document() -> None:
+    """Validated where it is fetched, not where it is referenced."""
+    listing = StoreListing.model_validate(store_listing())
+
+    assert listing.category is AppCategory.HEALTH_AND_FITNESS
+    assert listing.icon_path == "fitness/0.1.0/icon.png"
+    assert len(listing.screenshots) == 2
+    assert listing.screenshots[0].caption == "Today"
+    assert listing.screenshots[1].caption is None
 
 
 def test_asset_paths_are_relative_so_the_host_is_not_baked_into_the_manifest() -> None:
@@ -557,15 +592,12 @@ def test_publisher_links_must_still_be_https(link_url: str) -> None:
 
 
 def test_store_listing_serializes_paths_as_plain_strings() -> None:
-    data = manifest_data()
-    data["store"] = store_listing()
+    dump = StoreListing.model_validate(store_listing()).model_dump()
 
-    dump = AppManifest.model_validate(data).model_dump()
-
-    assert dump["store"]["icon_path"] == "fitness/0.1.0/icon.png"
-    assert dump["store"]["category"] == "health-and-fitness"
-    assert dump["store"]["screenshots"][0]["path"] == "fitness/0.1.0/1.png"
-    assert dump == json.loads(AppManifest.model_validate(data).model_dump_json())
+    assert dump["icon_path"] == "fitness/0.1.0/icon.png"
+    assert dump["category"] == "health-and-fitness"
+    assert dump["screenshots"][0]["path"] == "fitness/0.1.0/1.png"
+    assert dump == json.loads(StoreListing.model_validate(store_listing()).model_dump_json())
 
 
 def test_store_listing_rejects_duplicate_screenshot_paths() -> None:

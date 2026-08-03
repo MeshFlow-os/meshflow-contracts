@@ -228,14 +228,18 @@ class StoreScreenshot(BaseModel):
 
 
 class StoreListing(BaseModel):
-    """Presentation metadata for the app store.
+    """Schema of the store listing document a manifest points at.
 
-    Asset paths are relative to the publisher's media root, which the registry
-    holds and can update at any time. The manifest says WHICH asset; the registry
-    says WHERE it is served from. Naming a host here would repeat the mistake
+    Lives outside the manifest, fetched from the publisher's media root, so
+    changing a screenshot or a description is an upload rather than a republished
+    app version. Only the path to this document is frozen into the manifest.
+
+    Asset paths within it are relative to that same media root, which the registry
+    holds and can repoint at any time. The document says WHICH asset; the registry
+    says WHERE it is served from. Naming a host in either would repeat the mistake
     `service.base_url` made before 0.3.0 removed it: a publisher could not move
-    their hosting without republishing every version, and every already-registered
-    snapshot — immutable by design — would keep pointing at the old host.
+    their hosting without republishing, and every already-registered snapshot —
+    immutable by design — would keep pointing at the old host.
 
     Publisher links stay absolute. A marketing site or privacy policy is not
     served from the media root and does not move when asset hosting does.
@@ -301,7 +305,19 @@ class AppManifest(BaseModel):
     external_ingress: tuple[ExternalIngressDefinition, ...] = Field(
         default_factory=tuple, exclude_if=lambda value: value == ()
     )
-    store: StoreListing | None = Field(default=None, exclude_if=lambda value: value is None)
+    # A path, not the listing itself. The manifest is snapshotted and hashed at
+    # registration and never edited again, because that immutability is what makes
+    # a permission grant meaningful: an app must not be able to widen what it
+    # asked for after a user consented. Presentation carries no such promise — a
+    # screenshot is not something a user agreed to — so embedding it here would
+    # force a republished version for a change of decoration. This freezes WHERE
+    # the listing lives; the document it names stays editable.
+    store_listing_path: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=MAX_ASSET_PATH_LENGTH,
+        exclude_if=lambda value: value is None,
+    )
     release_notes: str | None = Field(
         default=None,
         min_length=1,
@@ -314,6 +330,11 @@ class AppManifest(BaseModel):
         self, value: tuple[ExternalIngressDefinition, ...]
     ) -> list[ExternalIngressDefinition]:
         return list(value)
+
+    @field_validator("store_listing_path")
+    @classmethod
+    def validate_store_listing_path(cls, path: str | None) -> str | None:
+        return None if path is None else validate_relative_asset_path(path)
 
     @model_validator(mode="after")
     def validate_unique_external_ingress_capability_ids(self) -> "AppManifest":

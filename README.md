@@ -57,9 +57,15 @@ persistence.
 
 ## 0.4.0 rollout notes
 
-`0.4.0` replaces the store listing's absolute asset URLs with paths relative to
-a media root the registry holds. A publisher can move their asset hosting by
-updating one registry field, with no manifest change and no republished version.
+`0.4.0` moves the store listing out of the manifest. The manifest carries
+`store_listing_path`, a relative path to a document the publisher hosts and can
+overwrite freely; only that path is frozen into the registered snapshot. Asset
+locations inside the document are relative too, so a publisher can move their
+hosting by updating one registry field, with no manifest change and no
+republished version.
+
+What stays frozen is what a user actually agreed to: permissions, ingress
+capabilities, identity, and the release notes of a given version.
 
 `0.3.0` removed `service.base_url` from `AppManifest` for the same reason: the
 manifest describes app identity only, and deployment bindings are supplied
