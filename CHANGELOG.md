@@ -1,5 +1,45 @@
 # Changelog
 
+## 0.4.0
+
+Breaking. Consumers stay pinned to `0.3.0` until this version is published and
+verified; adoption order is Core, then Gateway, then apps.
+
+- Replace the embedded `AppManifest.store` block with `store_listing_path`, a
+  relative path to a listing document the publisher hosts.
+
+  The manifest is snapshotted and hashed at registration and never edited again.
+  That immutability exists for the permission grant: an app must not be able to
+  widen what it asked for after a user consented. Presentation carries no such
+  promise — a screenshot is not something a user agreed to — so embedding it
+  meant a change of decoration required a republished app version. The manifest
+  now freezes only WHERE the listing lives; the document it names stays editable.
+
+- `StoreListing` becomes the schema of that external document. Its asset
+  locations are `icon_path` and `screenshots[].path`, relative to the same media
+  root, replacing the absolute `icon_url` and `url`.
+
+  A hostname anywhere in this chain is a deployment binding — the mistake
+  `service.base_url` made before 0.3.0 removed it. It meant a publisher could not
+  move their asset hosting without republishing, and every already-registered
+  snapshot, immutable by design, kept pointing at the old host until its links
+  died. The registry now holds the media base URL, per app, and can repoint it at
+  any time with no manifest change.
+
+- Reject asset paths that could resolve outside the media root: absolute paths,
+  protocol-relative values, traversal (including mid-path), percent-encoding,
+  backslashes, query strings and fragments. These are joined onto a base URL the
+  manifest does not control, so an unchecked value could serve
+  attacker-controlled content inside the platform's own store UI.
+
+- Publisher links (`website_url`, `support_url`, `privacy_policy_url`) stay
+  absolute https. A marketing site is not served from the media root and does not
+  move when asset hosting does.
+
+- `release_notes` stays in the manifest, deliberately. What changed in a given
+  version is a fact about that version; making it editable after the fact would
+  let the record be rewritten.
+
 ## 0.3.0
 
 Breaking. Consumers stay pinned to `0.2.3` until this version is published and

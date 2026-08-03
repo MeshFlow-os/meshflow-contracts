@@ -16,7 +16,7 @@ from meshflow_contracts.manifest import (
     StoreScreenshot,
 )
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"
 
 __all__ = [
     "AppCategory",

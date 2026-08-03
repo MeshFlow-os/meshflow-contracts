@@ -8,10 +8,10 @@ This runbook records the release gates. It does not authorize tagging, publishin
 delete, reuse, rerun, retag, publish, or create a GitHub Release for any of them.
 The verifier correctly rejected those builds because uv added `dist/.gitignore` beside the wheel and sdist; recovery fixed the build invocation rather than weakening the exact artifact allowlist.
 
-`0.2.3` is published on PyPI and is the currently supported line.
+`0.2.3` and `0.3.0` are published on PyPI. `0.3.0` is the currently supported line.
 
-The release candidate is `0.3.0`. It is a breaking change: `service.base_url` is
-removed from `AppManifest`. Its release build uses:
+The release candidate is `0.4.0`. It is a breaking change: store asset locations
+become paths relative to a registry-held media root instead of absolute URLs. Its release build uses:
 
 ```bash
 uv build --clear --no-create-gitignore --build-constraints build-constraints.txt --require-hashes
@@ -22,7 +22,7 @@ Do not run that command as an operator release substitute. The real build-to-ver
 ## Release Gate
 
 After the release commit is merged, run a fresh successful `Release dry run`
-for `v0.3.0` from the exact merged `main` SHA. Record its push run ID and verify the run used
+for `v0.4.0` from the exact merged `main` SHA. Record its push run ID and verify the run used
 `.github/workflows/release-dry-run.yml`, has `event=push`, `head_branch=main`,
 the exact candidate `head_sha`, `status=completed`, and `conclusion=success`.
 
@@ -41,14 +41,12 @@ CI actionlint is commit-pinned and time-bounded, with ShellCheck enabled for mul
 
 ## Consumer Adoption
 
-Consumers must not adopt `0.3.0` until the public wheel, sdist, hashes, and
-provenance are verified. Core adopts `0.3.0` before Gateway. Each consumer must
+Consumers must not adopt `0.4.0` until the public wheel, sdist, hashes, and
+provenance are verified. Core adopts `0.4.0` before Gateway. Each consumer must
 pin the exact verified version, regenerate its lockfile, use frozen installs,
 and prove schema equivalence before deleting duplicated contracts or enabling
 runtime behavior.
 
-`0.3.0` additionally requires every consumer that produces a manifest to stop
-emitting `service.base_url` before adopting, because the field is no longer part
-of the contract. Persisted registry snapshots are unaffected: `ServiceDefinition`
-tolerates unknown keys precisely so immutable, already-hashed snapshots keep
-parsing on the read path.
+`0.4.0` additionally requires every consumer that produces a store listing to
+emit `icon_path`/`path` instead of `icon_url`/`url`, and the registry to hold a
+media base URL per app to resolve them against.

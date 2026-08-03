@@ -27,6 +27,8 @@ MAX_LONG_DESCRIPTION_LENGTH = 4_000
 MAX_RELEASE_NOTES_LENGTH = 2_000
 MAX_SCREENSHOTS = 10
 MAX_SCREENSHOT_CAPTION_LENGTH = 140
+MAX_ASSET_PATH_LENGTH = 512
+RELATIVE_ASSET_PATH_PATTERN = re.compile(r"^[A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+)*$")
 
 
 def validate_normalized_absolute_path(path: str) -> str:
@@ -58,10 +60,43 @@ def validate_normalized_absolute_path(path: str) -> str:
 
 
 def validate_https_url(url: HttpUrl) -> HttpUrl:
-    """Store assets are rendered in the browser, so plaintext transport is refused."""
+    """Publisher links are opened in the browser, so plaintext transport is refused."""
     if url.scheme != "https":
         raise ValueError("url must use https")
     return url
+
+
+def validate_relative_asset_path(path: str) -> str:
+    """Reject anything that could resolve outside the publisher's media root.
+
+    Asset paths are joined onto a base URL the manifest does not control, so a
+    value carrying a scheme, an authority, or traversal would resolve somewhere
+    else entirely — in the worst case an attacker-controlled host serving
+    content inside the platform's own store UI.
+
+    Relative rather than absolute on purpose: where the assets are hosted is a
+    deployment binding, and a manifest that names a host cannot be moved without
+    republishing every version, while every already-registered snapshot keeps
+    pointing at the old one. Snapshots are immutable, so those links die.
+    """
+    if RELATIVE_ASSET_PATH_PATTERN.fullmatch(path) is None:
+        raise ValueError("asset path must be a relative path within the media root")
+    parsed = urlsplit(path)
+    segments = path.split("/")
+    if (
+        path.startswith("/")
+        or parsed.scheme
+        or parsed.netloc
+        or parsed.query
+        or parsed.fragment
+        or "%" in path
+        or "\\" in path
+        or "" in segments
+        or ".." in segments
+        or "." in segments
+    ):
+        raise ValueError("asset path must be a relative path within the media root")
+    return path
 
 
 class Publisher(BaseModel):
@@ -183,38 +218,49 @@ class AppCategory(StrEnum):
 class StoreScreenshot(BaseModel):
     model_config = ConfigDict(frozen=True)
 
-    url: HttpUrl
+    path: str = Field(min_length=1, max_length=MAX_ASSET_PATH_LENGTH)
     caption: str | None = Field(default=None, max_length=MAX_SCREENSHOT_CAPTION_LENGTH)
 
-    @field_validator("url")
+    @field_validator("path")
     @classmethod
-    def validate_url(cls, url: HttpUrl) -> HttpUrl:
-        return validate_https_url(url)
-
-    @field_serializer("url")
-    def serialize_url(self, url: HttpUrl) -> str:
-        return str(url)
+    def validate_path(cls, path: str) -> str:
+        return validate_relative_asset_path(path)
 
 
 class StoreListing(BaseModel):
-    """Presentation metadata for the app store.
+    """Schema of the store listing document a manifest points at.
 
-    Assets are absolute https URLs hosted by the publisher rather than paths served
-    by the running app: the manifest is a versioned, deployment-independent artifact
-    and must stay resolvable before the app is ever deployed.
+    Lives outside the manifest, fetched from the publisher's media root, so
+    changing a screenshot or a description is an upload rather than a republished
+    app version. Only the path to this document is frozen into the manifest.
+
+    Asset paths within it are relative to that same media root, which the registry
+    holds and can repoint at any time. The document says WHICH asset; the registry
+    says WHERE it is served from. Naming a host in either would repeat the mistake
+    `service.base_url` made before 0.3.0 removed it: a publisher could not move
+    their hosting without republishing, and every already-registered snapshot —
+    immutable by design — would keep pointing at the old host.
+
+    Publisher links stay absolute. A marketing site or privacy policy is not
+    served from the media root and does not move when asset hosting does.
     """
 
     model_config = ConfigDict(frozen=True)
 
     long_description: str = Field(min_length=1, max_length=MAX_LONG_DESCRIPTION_LENGTH)
     category: AppCategory
-    icon_url: HttpUrl
+    icon_path: str = Field(min_length=1, max_length=MAX_ASSET_PATH_LENGTH)
     screenshots: tuple[StoreScreenshot, ...] = Field(default_factory=tuple, max_length=MAX_SCREENSHOTS)
     website_url: HttpUrl | None = None
     support_url: HttpUrl | None = None
     privacy_policy_url: HttpUrl | None = None
 
-    @field_validator("icon_url", "website_url", "support_url", "privacy_policy_url")
+    @field_validator("icon_path")
+    @classmethod
+    def validate_icon_path(cls, path: str) -> str:
+        return validate_relative_asset_path(path)
+
+    @field_validator("website_url", "support_url", "privacy_policy_url")
     @classmethod
     def validate_https(cls, url: HttpUrl | None) -> HttpUrl | None:
         return None if url is None else validate_https_url(url)
@@ -224,12 +270,12 @@ class StoreListing(BaseModel):
     def validate_unique_screenshots(
         cls, screenshots: tuple[StoreScreenshot, ...]
     ) -> tuple[StoreScreenshot, ...]:
-        urls = [str(screenshot.url) for screenshot in screenshots]
-        if len(set(urls)) != len(urls):
-            raise ValueError("screenshot urls must be unique")
+        paths = [screenshot.path for screenshot in screenshots]
+        if len(set(paths)) != len(paths):
+            raise ValueError("screenshot paths must be unique")
         return screenshots
 
-    @field_serializer("icon_url", "website_url", "support_url", "privacy_policy_url")
+    @field_serializer("website_url", "support_url", "privacy_policy_url")
     def serialize_url(self, url: HttpUrl | None) -> str | None:
         return None if url is None else str(url)
 
@@ -259,7 +305,19 @@ class AppManifest(BaseModel):
     external_ingress: tuple[ExternalIngressDefinition, ...] = Field(
         default_factory=tuple, exclude_if=lambda value: value == ()
     )
-    store: StoreListing | None = Field(default=None, exclude_if=lambda value: value is None)
+    # A path, not the listing itself. The manifest is snapshotted and hashed at
+    # registration and never edited again, because that immutability is what makes
+    # a permission grant meaningful: an app must not be able to widen what it
+    # asked for after a user consented. Presentation carries no such promise — a
+    # screenshot is not something a user agreed to — so embedding it here would
+    # force a republished version for a change of decoration. This freezes WHERE
+    # the listing lives; the document it names stays editable.
+    store_listing_path: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=MAX_ASSET_PATH_LENGTH,
+        exclude_if=lambda value: value is None,
+    )
     release_notes: str | None = Field(
         default=None,
         min_length=1,
@@ -272,6 +330,11 @@ class AppManifest(BaseModel):
         self, value: tuple[ExternalIngressDefinition, ...]
     ) -> list[ExternalIngressDefinition]:
         return list(value)
+
+    @field_validator("store_listing_path")
+    @classmethod
+    def validate_store_listing_path(cls, path: str | None) -> str | None:
+        return None if path is None else validate_relative_asset_path(path)
 
     @model_validator(mode="after")
     def validate_unique_external_ingress_capability_ids(self) -> "AppManifest":
